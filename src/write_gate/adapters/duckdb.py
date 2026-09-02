@@ -6,7 +6,11 @@ from pathlib import Path
 
 import duckdb
 
+from write_gate.adapters.base import BACKEND_DUCKDB, count_sql as _count_sql
 from write_gate.paths import DB_PATH
+
+DIALECT = "duckdb"
+BACKEND = BACKEND_DUCKDB
 
 ORDERS_DDL = """
 CREATE TABLE orders (
@@ -19,6 +23,11 @@ CREATE TABLE orders (
     status VARCHAR NOT NULL
 )
 """
+
+
+def count_sql(table: str, predicate: str | None) -> str:
+    """Blast-radius estimate: COUNT(*) of the matching predicate."""
+    return _count_sql(table, predicate, backend=BACKEND_DUCKDB)
 
 
 def connect(db_path: Path | None = None, *, read_only: bool = False) -> duckdb.DuckDBPyConnection:
