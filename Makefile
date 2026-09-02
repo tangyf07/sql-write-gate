@@ -21,6 +21,7 @@ test: install
 
 demo: seed
 	$(PY) scripts/demo.py
+	$(PY) scripts/demo_walkthrough.py
 
 clean:
 	rm -rf $(VENV) src/write_gate.egg-info .pytest_cache
