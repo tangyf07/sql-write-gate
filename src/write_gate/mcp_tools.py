@@ -1,7 +1,8 @@
-"""MCP tool functions: check-only, importable without the MCP SDK.
+"""MCP tool functions: execute ALLOW SQL via WriteGate.
 
-query_sql / write_sql both call WriteGate.check (never execute). Honor
-database= / DATABASE_URL the same way as the CLI.
+query_sql / write_sql call WriteGate.execute (not raw DuckDB). BLOCK and
+REQUIRE_APPROVAL already return None and do not write. Honor database= /
+DATABASE_URL the same way as the CLI.
 """
 
 from __future__ import annotations
@@ -9,7 +10,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from write_gate.decision import ACTION_ALLOW
 from write_gate.wrapper import WriteGate
+
+QUERY_ROW_CAP = 50
 
 
 def _as_path(value: str | Path | None) -> Path | None:
@@ -35,21 +39,78 @@ def _gate(
     )
 
 
-def decision_payload(decision: Any) -> dict[str, Any]:
+def _json_cell(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    iso = getattr(value, "isoformat", None)
+    if callable(iso):
+        return iso()
+    return str(value)
+
+
+def _fetch_rows(result: Any, *, cap: int) -> list[list[Any]]:
+    if result is None:
+        return []
+    fetched = None
+    fetchmany = getattr(result, "fetchmany", None)
+    if callable(fetchmany):
+        try:
+            fetched = fetchmany(cap)
+        except Exception:
+            fetched = None
+    if fetched is None:
+        fetchall = getattr(result, "fetchall", None)
+        if not callable(fetchall):
+            return []
+        try:
+            fetched = fetchall()[:cap]
+        except Exception:
+            return []
+    rows: list[list[Any]] = []
+    for row in fetched:
+        rows.append([_json_cell(c) for c in row])
+    return rows
+
+
+def _rowcount(result: Any) -> int | None:
+    if result is None:
+        return None
+    rc = getattr(result, "rowcount", None)
+    if isinstance(rc, int) and rc >= 0:
+        return rc
+    return None
+
+
+def decision_payload(
+    decision: Any,
+    *,
+    executed: bool = False,
+    rowcount: int | None = None,
+    rows: list[list[Any]] | None = None,
+) -> dict[str, Any]:
     """JSON-serializable gate result for MCP tools / python -c demos."""
-    return {
+    payload: dict[str, Any] = {
         "action": decision.action,
         "rule_id": decision.rule_id,
         "reason": decision.reason,
         "operation": decision.operation,
         "table": decision.table,
         "risk": decision.risk,
+        "executed": bool(executed),
     }
+    if rowcount is not None:
+        payload["rowcount"] = rowcount
+    if rows is not None:
+        payload["rows"] = rows
+    return payload
 
 
-def _check(
+def _execute(
     sql: str,
     *,
+    include_rows: bool,
     database: str | None = None,
     db_path: str | Path | None = None,
     catalog_path: str | Path | None = None,
@@ -63,8 +124,17 @@ def _check(
         policy_path=policy_path,
         agent=agent,
     ) as gate:
-        decision = gate.check(sql)
-    return decision_payload(decision)
+        decision, result = gate.execute(sql)
+        executed = decision.action == ACTION_ALLOW and result is not None
+        rows = None
+        rowcount = None
+        if executed:
+            rowcount = _rowcount(result)
+            if include_rows:
+                rows = _fetch_rows(result, cap=QUERY_ROW_CAP)
+                if rowcount is None:
+                    rowcount = len(rows)
+    return decision_payload(decision, executed=executed, rowcount=rowcount, rows=rows)
 
 
 def query_sql(
@@ -76,12 +146,14 @@ def query_sql(
     policy_path: str | Path | None = None,
     agent: str = "mcp",
 ) -> dict[str, Any]:
-    """Check a SELECT (or any SQL) through WriteGate.check. Never executes.
+    """Gate then (on ALLOW) execute SQL via WriteGate.execute.
 
-    Non-read statements still run the gate; they are not executed.
+    SELECT results include a capped ``rows`` list. BLOCK / REQUIRE_APPROVAL
+    do not run user SQL.
     """
-    return _check(
+    return _execute(
         sql,
+        include_rows=True,
         database=database,
         db_path=db_path,
         catalog_path=catalog_path,
@@ -99,12 +171,13 @@ def write_sql(
     policy_path: str | Path | None = None,
     agent: str = "mcp",
 ) -> dict[str, Any]:
-    """Check INSERT/UPDATE/DELETE/DDL through WriteGate.check. Never executes.
+    """Gate then (on ALLOW) execute INSERT/UPDATE/DELETE/DDL via WriteGate.execute.
 
-    Does not call WriteGate.execute even when the decision is ALLOW.
+    BLOCK / REQUIRE_APPROVAL return executed=false and do not write.
     """
-    return _check(
+    return _execute(
         sql,
+        include_rows=False,
         database=database,
         db_path=db_path,
         catalog_path=catalog_path,

@@ -21,7 +21,7 @@ def create_server(
     policy: str | None = None,
     agent: str = "mcp",
 ):
-    """Build a FastMCP server exposing query_sql and write_sql (check only)."""
+    """Build a FastMCP server exposing query_sql and write_sql (ALLOW executes)."""
     from write_gate.mcp_tools import query_sql as check_query
     from write_gate.mcp_tools import write_sql as check_write
 
@@ -37,12 +37,12 @@ def create_server(
 
     @mcp.tool()
     def query_sql(sql: str) -> dict[str, Any]:
-        """Evaluate a SELECT (or any SQL) through sql-write-gate. Never executes."""
+        """Evaluate a SELECT (or any SQL) through sql-write-gate. ALLOW executes."""
         return check_query(sql, **gate_kwargs)
 
     @mcp.tool()
     def write_sql(sql: str) -> dict[str, Any]:
-        """Evaluate INSERT/UPDATE/DELETE/DDL through sql-write-gate. Never executes."""
+        """Evaluate INSERT/UPDATE/DELETE/DDL through sql-write-gate. ALLOW executes."""
         return check_write(sql, **gate_kwargs)
 
     return mcp
