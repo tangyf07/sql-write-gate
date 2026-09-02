@@ -25,4 +25,5 @@ demo: seed
 clean:
 	rm -rf $(VENV) src/write_gate.egg-info .pytest_cache
 	rm -f seed/warehouse.duckdb seed/warehouse.duckdb.wal seed/orders.csv
+	rm -f .logs/*.jsonl
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

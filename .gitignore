@@ -6,3 +6,4 @@ __pycache__/
 seed/warehouse.duckdb
 seed/warehouse.duckdb.wal
 seed/orders.csv
+.logs/*.jsonl

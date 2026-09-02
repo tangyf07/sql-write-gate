@@ -1,0 +1,12 @@
+# Production default. Screenshots and `sql-write-gate check` use this file.
+# `make demo` three write cases pass examples/policy.demo.yaml so INSERT can ALLOW.
+environment: production
+rules:
+  select: allow
+  insert: approval
+  update: approval
+  delete: block
+  ddl: block
+limits:
+  update_rows: 100
+  delete_rows: 50

@@ -1,40 +1,93 @@
-# 写库前门禁 (sql-write-gate)
+# sql-write-gate
 
-## 定位
+写库前门禁 · Policy firewall for AI agents writing to databases.
 
-Agent 要对 DuckDB 数仓做 `INSERT` / 写操作时，**不能靠模型自己判断能不能写**。本仓库提供一层确定性预写门禁（wrapper）：
+Prevent Claude Code, Codex, Cursor and MCP agents from executing unsafe database operations.
 
-- **新鲜度**：写入过期分区（`dt` 早于截止日期）→ 拒绝，并给出 rule id + 原因
-- **Schema**：未知列 / 类型不匹配 → 拒绝，并给出证据
-- **PII**：向 `email` / `phone` 等 PII 列写入 → 拒绝，并给出证据
-- **只读**：单条 `SELECT` 绕过写规则，直接放行
-- **合法写入**：新鲜分区 + 非 PII 列 → 放行，并由唯一写工具执行
+```
+  Agent SQL  ──►  sql-write-gate  ──►  ALLOW / BLOCK / APPROVAL  ──►  Database
+```
 
-策略引擎是纯规则（sqlglot AST + `seed/catalog.json`），**不调用 LLM，不需要 API Key**。
+Deterministic policy engine (sqlglot AST + catalog + policy.yaml). **No LLM. No API key.**
 
-## 无 Key 的 make demo
+```bash
+pip install -e .
+sql-write-gate check "DELETE FROM users"
+```
+
+```
+BLOCKED
+Risk: critical
+Operation: DELETE
+Table: users
+Rule: delete_without_where
+Reason: DELETE without a WHERE clause is forbidden (full-table delete on users)
+```
+
+```bash
+sql-write-gate check "DELETE FROM orders"
+# → BLOCKED  rule=delete_without_where   (no API key)
+```
+
+## What it blocks
+
+- [x] `DROP TABLE` / `TRUNCATE` / `ALTER TABLE`
+- [x] `DELETE` / `UPDATE` without `WHERE`
+- [x] Blast-radius: estimated rows over `update_rows` / `delete_rows`
+- [x] Schema: unknown table/column, type mismatch
+- [x] PII writes blocked; `SELECT` of PII columns requires approval
+- [x] Environment policy: per-operation allow / block / approval
+- [x] Freshness: expired partitions (`dt` before cutoff)
+- [x] JSONL audit log (`.logs/audit.jsonl`)
+- [x] Deterministic rules — no LLM, no network
+
+## 30-second path
 
 ```bash
 cd sql-write-gate
-make demo
+pip install -e .          # or: make install
+sql-write-gate check "DELETE FROM orders"
+# BLOCKED / delete_without_where — no API key required
+
+make demo                 # three write cases (uses examples/policy.demo.yaml)
+make test                 # pytest -q
 ```
 
-会依次：创建本地 venv → 安装依赖 → 幂等重建 `seed/warehouse.duckdb` → 用 Python 脚本打三条用例。全程离线，没有模型、没有网络 Key。
+`python -m write_gate check "DELETE FROM orders"` works the same.
 
-单独跑：
+## Policy
+
+Default (`policy.yaml` / `examples/policy.yaml`) is **production**:
+
+| operation | rule |
+|-----------|------|
+| select | allow |
+| insert | approval |
+| update | approval |
+| delete | block |
+| ddl | block |
+
+Limits: `update_rows: 100`, `delete_rows: 50`.
+
+`make demo` three INSERT cases pass `--policy examples/policy.demo.yaml` (insert=allow) so a legal write can still show **ALLOW**. CLI / README screenshots use production policy.
 
 ```bash
-make seed    # 幂等重建 CSV + DuckDB
-make test    # pytest -q
-python -m write_gate check "SELECT 1"
-python -m write_gate exec "INSERT INTO orders (order_id, user_id, amount, dt, status) VALUES (900001, 42, 18.5, '2026-09-01', 'paid')"
+sql-write-gate check --policy examples/policy.yaml "UPDATE orders SET status='expired' WHERE id=123"
+sql-write-gate check "SELECT id, name FROM users LIMIT 10"
+sql-write-gate audit
 ```
 
-仓库文件：`seed/warehouse.duckdb`。目录：`seed/catalog.json`（可写表、允许列、PII 列、新鲜度 cutoff）。
+## Decision model
 
-## 三条用例
+`ALLOW` | `BLOCK` | `REQUIRE_APPROVAL` with `risk` `low|medium|critical`, `rule_id`, `reason`, `evidence`.
 
-`make demo` 打印的三个固定场景（日期锚定 `as_of=2026-09-02`，超过 7 天的分区视为过期，即 `dt < 2026-08-26`）：
+Guards (any **BLOCK** wins, else any **APPROVAL**, else **ALLOW**):
+
+`destructive` → `schema` → `pii` → `freshness` → `blast_radius` → `environment`
+
+## 三条用例 (`make demo`)
+
+Dates anchored `as_of=2026-09-02`; partitions older than 7 days (`dt < 2026-08-26`) are expired.
 
 | # | 场景 | 期望 | `rule_id` |
 |---|------|------|-----------|
@@ -42,32 +95,37 @@ python -m write_gate exec "INSERT INTO orders (order_id, user_id, amount, dt, st
 | 2 | 过期分区：`dt='2026-08-01'` | BLOCKED | `expired_partition` |
 | 3 | PII 写入：INSERT 带 `email` | BLOCKED | `pii_column` |
 
-证据对象形状：
+示例表 `orders` 列：`order_id, user_id, amount, dt, email, phone, status`。种子约 120 行。
 
-```json
-{
-  "allowed": false,
-  "rule_id": "pii_column",
-  "message": "...",
-  "sql": "..."
-}
+**唯一写入口**：`WriteGate.execute(sql)`。脚本与测试不得绕过 wrapper 直接调用 DuckDB 写 API（种子脚本 `scripts/gen_seed.py` 除外）。
+
+## Catalog / PII
+
+`seed/catalog.json` (copied at `examples/catalog.json`): writable tables, allowed columns, `pii_columns`, optional `restricted_columns` (`id_card`, `card_number`).
+
+- Write to PII / restricted columns → **BLOCK**
+- `SELECT` of PII columns → **REQUIRE_APPROVAL** (not silent allow)
+- `SELECT` of restricted columns → **BLOCK**
+
+## Audit
+
+Every `check` / `exec` appends a JSON line to `.logs/audit.jsonl`:
+
+`timestamp, agent, environment, sql, operation, table, estimated_rows, decision, rule_id`
+
+```bash
+sql-write-gate audit
 ```
-
-`rule_id` 取值：`ok` | `pii_column` | `expired_partition` | `schema_mismatch`。
-
-示例表 `orders` 列：`order_id, user_id, amount, dt, email, phone, status`。种子约 120 行，一半过期分区、一半新鲜分区，并带有 email/phone。
-
-**唯一写入口**：`WriteGate.execute(sql)`。脚本与测试不得绕过 wrapper 直接调用 DuckDB 写 API（种子脚本 `scripts/gen_seed.py` 除外，它只负责重建仓库）。
 
 ## 非目标
 
 - 企业级 DQ / 数据质量平台、血缘 lineage
 - ChatBI、SSO、多租户、计费
-- LangGraph / CrewAI / 远程 MCP / 在线模型
+- LangGraph / CrewAI / 远程 MCP / 在线模型 / PostgreSQL / Web UI / PyPI publish
 - spark-retail-dw 克隆、Spark 数仓、海量数据
 
-本仓库是可演示的本地 MVP：一个 wrapper、一份 catalog、一个 DuckDB 文件、一套 pytest。
+DuckDB only. Local, deterministic, screenshot-ready.
 
 ## 许可
 
-MIT。见 [LICENSE](LICENSE)。
+MIT。见 [LICENSE](LICENSE).

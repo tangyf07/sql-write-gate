@@ -1,0 +1,12 @@
+# Demo/dev policy so `make demo` can show a legal INSERT as ALLOW.
+# Production screenshots use examples/policy.yaml / ./policy.yaml.
+environment: demo
+rules:
+  select: allow
+  insert: allow
+  update: allow
+  delete: allow
+  ddl: block
+limits:
+  update_rows: 10000
+  delete_rows: 10000
