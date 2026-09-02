@@ -44,6 +44,7 @@ def _safe(value: object) -> str:
 def _gate_from_args(args: argparse.Namespace) -> WriteGate:
     return WriteGate(
         db_path=Path(args.db) if getattr(args, "db", None) else None,
+        database=getattr(args, "database", None),
         catalog_path=Path(args.catalog) if getattr(args, "catalog", None) else None,
         policy_path=Path(args.policy) if getattr(args, "policy", None) else None,
         agent=getattr(args, "agent", None) or "cli",
@@ -75,6 +76,13 @@ def _add_shared(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--policy", help="Path to policy.yaml (default: ./policy.yaml)")
     parser.add_argument("--catalog", help="Path to catalog.json")
     parser.add_argument("--db", help="Path to DuckDB warehouse")
+    parser.add_argument(
+        "--database",
+        help=(
+            "DuckDB file path or postgres:// / postgresql:// URL "
+            "(default: DATABASE_URL, then local DuckDB)"
+        ),
+    )
     parser.add_argument("--agent", default="cli", help="Audit agent name")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
 

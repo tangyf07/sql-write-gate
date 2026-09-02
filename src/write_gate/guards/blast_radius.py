@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from write_gate.adapters.base import BACKEND_DUCKDB, count_sql, sqlglot_dialect
 from write_gate.decision import RULE_BLAST, RISK_CRITICAL, GuardResult
 from write_gate.parser import where_sql
 
@@ -30,7 +31,8 @@ def check_blast_radius(ctx) -> GuardResult:
             evidence={"skipped": True, "reason": "no connection to estimate rows"},
         )
 
-    estimated = _estimate_rows(conn, table, parsed.where)
+    dialect = getattr(ctx, "dialect", BACKEND_DUCKDB)
+    estimated = _estimate_rows(conn, table, parsed.where, dialect=dialect)
     evidence = {
         "estimated_rows": estimated,
         "max_rows": limit,
@@ -53,14 +55,12 @@ def check_blast_radius(ctx) -> GuardResult:
     return GuardResult.pass_(NAME, evidence=evidence)
 
 
-def _estimate_rows(conn, table: str, where) -> int | None:
+def _estimate_rows(conn, table: str, where, dialect: str = BACKEND_DUCKDB) -> int | None:
     # Table name comes from the parser identifier, not raw user interpolation of extra SQL.
     if not table.isidentifier():
         return None
-    predicate = where_sql(where)
-    sql = f'SELECT COUNT(*) FROM "{table}"'
-    if predicate:
-        sql = f"{sql} WHERE {predicate}"
+    predicate = where_sql(where, dialect=sqlglot_dialect(dialect))
+    sql = count_sql(table, predicate, backend=dialect)
     try:
         row = conn.execute(sql).fetchone()
     except Exception:

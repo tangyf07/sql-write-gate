@@ -32,6 +32,7 @@ def evaluate(
     catalog: Catalog,
     policy: Policy | None = None,
     conn: Any | None = None,
+    dialect: str = "duckdb",
 ) -> Decision:
     """Return a gate verdict for a single SQL string.
 
@@ -39,4 +40,10 @@ def evaluate(
     existing legal-INSERT cases stay ALLOW. The CLI loads production
     policy.yaml instead.
     """
-    return engine_evaluate(sql, catalog, policy=policy or demo_policy(), conn=conn)
+    return engine_evaluate(
+        sql,
+        catalog,
+        policy=policy or demo_policy(),
+        conn=conn,
+        dialect=dialect,
+    )

@@ -1,6 +1,6 @@
 [project]
 name = "write-gate"
-version = "0.1.0"
+version = "0.2.0"
 description = "Policy firewall for AI agents writing to databases (sql-write-gate)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -13,6 +13,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0"]
+postgres = ["psycopg[binary]>=3.1"]
 
 [project.scripts]
 sql-write-gate = "write_gate.cli:main"
