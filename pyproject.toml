@@ -1,0 +1,26 @@
+[project]
+name = "write-gate"
+version = "0.1.0"
+description = "写库前门禁: deterministic SQL pre-write gate (freshness / schema / PII)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "duckdb>=1.1.0",
+    "sqlglot>=25.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
