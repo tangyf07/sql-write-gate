@@ -9,7 +9,6 @@ import pytest
 
 from write_gate.cli import main
 from write_gate.mcp_tools import query_sql, write_sql
-from write_gate.wrapper import WriteGate
 
 ROOT = Path(__file__).resolve().parents[1]
 PG_URL = "postgresql://user:pass@localhost/db"
@@ -48,13 +47,17 @@ def test_query_sql_non_read_still_gates():
     assert result["rule_id"] == "delete_without_where"
 
 
-def test_tools_never_call_execute(monkeypatch):
-    def boom(self, sql):
-        raise AssertionError(f"execute must not run from MCP tools: {sql}")
+def test_write_sql_delete_not_executed():
+    result = write_sql("DELETE FROM orders")
+    assert result["action"] == "BLOCK"
+    assert result["rule_id"] == "delete_without_where"
+    assert result.get("executed") is False
 
-    monkeypatch.setattr(WriteGate, "execute", boom)
-    assert write_sql("DELETE FROM orders")["action"] == "BLOCK"
-    assert query_sql("SELECT 1")["action"] == "ALLOW"
+
+def test_query_sql_select_one_still_allow():
+    result = query_sql("SELECT 1")
+    assert result["action"] == "ALLOW"
+    assert result["rule_id"] == "ok"
 
 
 def test_payload_json_serializable():

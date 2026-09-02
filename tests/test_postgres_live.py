@@ -31,3 +31,21 @@ def test_live_execute_delete_without_where_no_orders_table_required():
     assert ev.action == "BLOCK"
     assert ev.rule_id == "delete_without_where"
     assert result is None
+
+
+def test_live_write_sql_delete_without_where():
+    from write_gate.mcp_tools import write_sql
+
+    result = write_sql("DELETE FROM orders", database=_URL)
+    assert result["action"] == "BLOCK"
+    assert result["rule_id"] == "delete_without_where"
+    assert result.get("executed") is False
+
+
+def test_live_query_sql_select_one():
+    from write_gate.mcp_tools import query_sql
+
+    result = query_sql("SELECT 1", database=_URL)
+    assert result["action"] == "ALLOW"
+    assert result.get("executed") is True
+

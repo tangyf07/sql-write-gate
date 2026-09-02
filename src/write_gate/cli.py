@@ -126,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser(
         "mcp",
-        help="Start MCP stdio server (query_sql / write_sql; check only)",
+        help="Start MCP stdio server (query_sql / write_sql; ALLOW executes)",
         parents=[shared],
     )
     return parser
