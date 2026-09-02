@@ -30,6 +30,7 @@ from write_gate.guards import (
     check_pii,
     check_schema,
 )
+from write_gate.adapters.base import BACKEND_DUCKDB, sqlglot_dialect
 from write_gate.parser import ParsedSQL, parse
 
 GuardFn = Callable[["Context"], GuardResult]
@@ -53,6 +54,7 @@ class Context:
     catalog: Catalog
     policy: Policy
     conn: Any | None = None
+    dialect: str = BACKEND_DUCKDB
     guard_results: list[GuardResult] = field(default_factory=list)
 
 
@@ -61,14 +63,16 @@ def evaluate(
     catalog: Catalog,
     policy: Policy | None = None,
     conn: Any | None = None,
+    dialect: str = BACKEND_DUCKDB,
 ) -> Decision:
-    parsed = parse(sql)
+    parsed = parse(sql, dialect=sqlglot_dialect(dialect))
     ctx = Context(
         sql=sql,
         parsed=parsed,
         catalog=catalog,
         policy=policy or production_policy(),
         conn=conn,
+        dialect=dialect,
     )
     results = [guard(ctx) for guard in GUARDS]
     ctx.guard_results = results
