@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sql-write-gate": {
+      "command": "sql-write-gate",
+      "args": ["mcp"]
+    }
+  }
+}
