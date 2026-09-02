@@ -182,6 +182,25 @@ python -c 'from write_gate.cases import LEGAL_WRITE_SQL; from write_gate.mcp_too
 
 `sql-write-gate check "DELETE FROM orders"` is still BLOCK. Hook `psql -c DELETE FROM orders` still exit 2. `query_sql("SELECT 1")` still ALLOW.
 
+## v0.6 — SQL proxy in front of the warehouse
+
+Agents talk to `sql-write-gate proxy` instead of the DB. Incoming SQL goes through WriteGate first. **ALLOW then execute. BLOCK and REQUIRE_APPROVAL do not write.** DuckDB is fully testable without a Postgres server. Same path if `DATABASE_URL` is `postgres://` / `postgresql://`. **No LLM. No API key. No PG wire protocol. No Web UI.**
+
+30-second no-IDE demo (DuckDB, no Agent, no LLM, no API key):
+
+```bash
+sql-write-gate proxy --database seed/warehouse.duckdb --sql "DELETE FROM orders"
+# BLOCKED / delete_without_where  (rows unchanged)
+
+sql-write-gate proxy --database seed/warehouse.duckdb --policy examples/policy.demo.yaml \
+  --sql "INSERT INTO orders (order_id, user_id, amount, dt, status) VALUES (900001, 42, 18.50, '2026-09-01', 'paid')"
+# ALLOWED / executed — SELECT finds order_id=900001
+```
+
+Exit codes match `check`: 0 ALLOW, 1 APPROVAL, 2 BLOCK. One-shot `--sql` (and stdin until EOF) so the command does not hang. Optional `--listen 127.0.0.1:0` text protocol: one SQL per connection.
+
+`sql-write-gate check "DELETE FROM orders"` is still BLOCK. Hook `psql -c DELETE FROM orders` still exit 2. MCP `write_sql("DELETE FROM orders")` still BLOCK.
+
 ## Policy
 
 Default (`policy.yaml` / `examples/policy.yaml`) is **production**:
