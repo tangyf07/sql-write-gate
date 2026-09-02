@@ -1,4 +1,4 @@
-"""CLI: python -m write_gate check|exec|audit ..."""
+"""CLI: python -m write_gate check|exec|audit|hook ..."""
 
 from write_gate.cli import main
 
