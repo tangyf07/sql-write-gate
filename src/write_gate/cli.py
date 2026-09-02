@@ -1,4 +1,4 @@
-"""CLI: sql-write-gate check|exec|audit. Also used by python -m write_gate."""
+"""CLI: sql-write-gate check|exec|audit|hook. Also used by python -m write_gate."""
 
 from __future__ import annotations
 
@@ -105,7 +105,52 @@ def build_parser() -> argparse.ArgumentParser:
     audit_p = sub.add_parser("audit", help="Print recent audit log rows")
     audit_p.add_argument("--limit", type=int, default=20, help="How many recent rows")
     audit_p.add_argument("--audit-path", default=None, help="Override audit jsonl path")
+
+    hook_p = sub.add_parser(
+        "hook",
+        help="PreToolUse: block raw DB CLIs; never execute SQL",
+        parents=[shared],
+    )
+    hook_p.add_argument(
+        "--command",
+        dest="hook_command",
+        default=None,
+        help="Bash command (tests / override stdin JSON)",
+    )
+    hook_p.add_argument(
+        "--sql",
+        dest="hook_sql",
+        default=None,
+        help="Raw SQL to evaluate (tests; still never executed)",
+    )
     return parser
+
+
+def _read_hook_stdin() -> str:
+    if sys.stdin.isatty():
+        return ""
+    return sys.stdin.read()
+
+
+def _cmd_hook(args: argparse.Namespace) -> int:
+    from write_gate.hooks import run_hook
+
+    agent = getattr(args, "agent", None)
+    if not agent or agent == "cli":
+        agent = "hook"
+    stdin_text = None
+    if not args.hook_command and not args.hook_sql:
+        stdin_text = _read_hook_stdin()
+    return run_hook(
+        bash_command=args.hook_command,
+        sql=args.hook_sql,
+        stdin_text=stdin_text,
+        database=getattr(args, "database", None),
+        db=getattr(args, "db", None),
+        catalog=getattr(args, "catalog", None),
+        policy=getattr(args, "policy", None),
+        agent=agent,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -117,6 +162,9 @@ def main(argv: list[str] | None = None) -> int:
         rows = read_audit(path, limit=args.limit)
         sys.stdout.write(format_audit_table(rows) + "\n")
         return 0
+
+    if args.command == "hook":
+        return _cmd_hook(args)
 
     with _gate_from_args(args) as gate:
         if args.command == "check":
