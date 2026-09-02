@@ -39,6 +39,7 @@ sql-write-gate check "DELETE FROM orders"
 - [x] Environment policy: per-operation allow / block / approval
 - [x] Freshness: expired partitions (`dt` before cutoff)
 - [x] JSONL audit log (`.logs/audit.jsonl`)
+- [x] Approval queue (`.logs/approvals.jsonl`): `REQUIRE_APPROVAL` is recorded, not executed, until `approve <id>`
 - [x] Deterministic rules — no LLM, no network
 
 ## 30-second path
@@ -200,6 +201,30 @@ sql-write-gate proxy --database seed/warehouse.duckdb --policy examples/policy.d
 Exit codes match `check`: 0 ALLOW, 1 APPROVAL, 2 BLOCK. One-shot `--sql` (and stdin until EOF) so the command does not hang. Optional `--listen 127.0.0.1:0` text protocol: one SQL per connection.
 
 `sql-write-gate check "DELETE FROM orders"` is still BLOCK. Hook `psql -c DELETE FROM orders` still exit 2. MCP `write_sql("DELETE FROM orders")` still BLOCK.
+
+## v0.7 — Real approval queue
+
+`REQUIRE_APPROVAL` is no longer a soft skip. SQL that needs approval is recorded in `.logs/approvals.jsonl` and **not executed**. `sql-write-gate approve <id>` then writes. Rejected or never approved does not write. Human approve clears the environment `approval` rule only; PII / destructive / schema still **BLOCK**. `check` and the PreToolUse hook stay evaluate-only (no enqueue, no write). **No LLM. No API key. No Slack. No Web UI.**
+
+30-second DuckDB path (production policy, `insert=approval`):
+
+```bash
+sql-write-gate exec --database seed/warehouse.duckdb --policy examples/policy.yaml \
+  "INSERT INTO orders (order_id, user_id, amount, dt, status) VALUES (900001, 42, 18.50, '2026-09-01', 'paid')"
+# REQUIRE_APPROVAL  approval_id=<id>  (no row)
+
+sql-write-gate pending
+sql-write-gate approve <id>
+# ALLOWED / executed
+
+sql-write-gate exec --database seed/warehouse.duckdb \
+  "SELECT order_id FROM orders WHERE order_id = 900001"
+# finds the row
+
+sql-write-gate reject <other-id>   # marks rejected, does not write
+```
+
+`DELETE FROM orders` is still **BLOCK** (`delete_without_where`), not queued, no write. Hook `psql -c DELETE FROM orders` still exit 2. Proxy `DELETE FROM orders` still BLOCK. `make demo` still three cases (demo policy `insert=allow`, so legal INSERT is ALLOW without approve).
 
 ## Policy
 
