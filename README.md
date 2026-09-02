@@ -5,7 +5,7 @@
 Prevent Claude Code, Codex, Cursor and MCP agents from executing unsafe database operations.
 
 ```
-  Agent SQL  ─►  sql-write-gate  ─►  ALLOW / BLOCK / APPROVAL  ─►  Database
+  Agent SQL  ──►  sql-write-gate  ──►  ALLOW / BLOCK / APPROVAL  ──►  Database
 ```
 
 Deterministic policy engine (sqlglot AST + catalog + policy.yaml). **No LLM. No API key.**
