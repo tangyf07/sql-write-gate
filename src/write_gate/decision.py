@@ -30,6 +30,7 @@ RULE_TRUNCATE = "truncate_table"
 RULE_ALTER_TABLE = "alter_table"
 RULE_BLAST = "blast_radius_exceeded"
 RULE_ENV = "environment_policy"
+RULE_RAW_DB_CLI = "raw_db_cli"
 
 
 @dataclass
