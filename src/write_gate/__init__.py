@@ -1,6 +1,7 @@
-"""写库前门禁 (sql-write-gate): deterministic pre-write gate for SQL INSERTs."""
+"""sql-write-gate: policy firewall for AI agents writing to databases."""
 
-from write_gate.wrapper import WriteGate, Evidence
+from write_gate.decision import Decision, Evidence
+from write_gate.wrapper import WriteGate
 
-__all__ = ["WriteGate", "Evidence"]
+__all__ = ["WriteGate", "Evidence", "Decision"]
 __version__ = "0.1.0"

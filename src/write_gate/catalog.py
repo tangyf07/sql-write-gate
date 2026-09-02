@@ -20,6 +20,7 @@ class TableSpec:
     columns: dict[str, str]
     allowed_write_columns: frozenset[str]
     pii_columns: frozenset[str]
+    restricted_columns: frozenset[str]
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,11 @@ def _table_spec(name: str, raw: dict[str, Any]) -> TableSpec:
     columns = {str(k).lower(): str(v).upper() for k, v in raw.get("columns", {}).items()}
     allowed = frozenset(c.lower() for c in raw.get("allowed_write_columns", []))
     pii = frozenset(c.lower() for c in raw.get("pii_columns", []))
+    restricted = frozenset(c.lower() for c in raw.get("restricted_columns", []))
+    # Conventional restricted names if the catalog lists those columns.
+    for extra in ("id_card", "card_number"):
+        if extra in columns:
+            restricted = restricted | {extra}
     part = raw.get("partition_column")
     return TableSpec(
         name=name.lower(),
@@ -54,6 +60,7 @@ def _table_spec(name: str, raw: dict[str, Any]) -> TableSpec:
         columns=columns,
         allowed_write_columns=allowed,
         pii_columns=pii,
+        restricted_columns=restricted,
     )
 
 
