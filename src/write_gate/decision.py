@@ -111,6 +111,7 @@ class Decision:
     operation: str | None = None
     table: str | None = None
     estimated_rows: int | None = None
+    approval_id: str | None = None
 
     @property
     def allowed(self) -> bool:
@@ -133,6 +134,7 @@ class Decision:
             "operation": self.operation,
             "table": self.table,
             "estimated_rows": self.estimated_rows,
+            "approval_id": self.approval_id,
         }
         return payload
 

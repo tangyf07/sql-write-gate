@@ -62,6 +62,19 @@ class Policy:
             return self.delete_rows
         return None
 
+    def with_env_approvals_cleared(self) -> "Policy":
+        """Human approve clears environment 'approval' rules only (block stays)."""
+        rules = {
+            op: ("allow" if rule == "approval" else rule)
+            for op, rule in self.rules.items()
+        }
+        return Policy(
+            environment=self.environment,
+            rules=rules,
+            update_rows=self.update_rows,
+            delete_rows=self.delete_rows,
+        )
+
 
 def _normalize_rules(raw: Any) -> dict[str, str]:
     src = dict(PRODUCTION_DEFAULTS["rules"])
