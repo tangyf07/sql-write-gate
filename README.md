@@ -38,7 +38,7 @@ sql-write-gate check "DELETE FROM orders"
 - [x] PII writes blocked; `SELECT` of PII columns requires approval
 - [x] Environment policy: per-operation allow / block / approval
 - [x] Freshness: expired partitions (`dt` before cutoff)
-- [x] JSONL audit log (`.logs/audit.jsonl`)
+- [x] JSONL audit log (`.logs/audit.jsonl`); `sql-write-gate audit` prints TIME / SOURCE / OP / TABLE / VERDICT
 - [x] Approval queue (`.logs/approvals.jsonl`): `REQUIRE_APPROVAL` is recorded, not executed, until `approve <id>`
 - [x] Deterministic rules — no LLM, no network
 
@@ -49,6 +49,10 @@ cd sql-write-gate
 pip install -e .          # or: make install
 sql-write-gate check "DELETE FROM orders"
 # BLOCKED / delete_without_where — no API key required
+
+sql-write-gate audit
+# TIME              SOURCE  OP      TABLE   VERDICT  RULE
+# 2026-09-03 00:40  cli     delete  orders  BLOCK    delete_without_where
 
 make demo                 # three write cases (uses examples/policy.demo.yaml)
 make test                 # pytest -q
@@ -226,6 +230,25 @@ sql-write-gate reject <other-id>   # marks rejected, does not write
 
 `DELETE FROM orders` is still **BLOCK** (`delete_without_where`), not queued, no write. Hook `psql -c DELETE FROM orders` still exit 2. Proxy `DELETE FROM orders` still BLOCK. `make demo` still three cases (demo policy `insert=allow`, so legal INSERT is ALLOW without approve).
 
+## v0.8 — Human-readable audit
+
+`sql-write-gate audit` prints a glanceable table from `.logs/audit.jsonl`. JSONL on disk is unchanged (`decision` stays `ALLOW` / `BLOCK` / `REQUIRE_APPROVAL`). The **VERDICT** column maps `REQUIRE_APPROVAL` → `APPROVAL`. Empty log: `(no audit records)`. **No LLM. No API key. No Web UI. No DB-backed audit store.**
+
+30-second DuckDB path:
+
+```bash
+sql-write-gate check "DELETE FROM orders"
+# BLOCKED / delete_without_where
+
+sql-write-gate audit
+# TIME              SOURCE  OP      TABLE   VERDICT  RULE
+# 2026-09-03 00:40  cli     delete  orders  BLOCK    delete_without_where
+```
+
+`--limit` and `--audit-path` still work (default `.logs/audit.jsonl`). TIME is local Asia/Shanghai (`YYYY-MM-DD HH:MM`); SOURCE is the agent (`cli` / `hook` / `mcp` / `proxy` / `test`).
+
+`DELETE FROM orders` is still **BLOCK**. Hook `psql -c DELETE FROM orders` still exit 2. Proxy `DELETE FROM orders` still BLOCK. MCP `write_sql("DELETE FROM orders")` still BLOCK. `approve` still writes only after a human id.
+
 ## Policy
 
 Default (`policy.yaml` / `examples/policy.yaml`) is **production**:
@@ -284,8 +307,20 @@ Every `check` / `exec` appends a JSON line to `.logs/audit.jsonl`:
 
 `timestamp, agent, environment, sql, operation, table, estimated_rows, decision, rule_id`
 
+`decision` in the file is `ALLOW` / `BLOCK` / `REQUIRE_APPROVAL`. `sql-write-gate audit` prints:
+
+```
+TIME              SOURCE  OP      TABLE   VERDICT  RULE
+----------------  ------  ------  ------  -------  --------------------
+2026-09-03 00:40  cli     delete  orders  BLOCK    delete_without_where
+```
+
+VERDICT maps `REQUIRE_APPROVAL` → `APPROVAL` for the table only. Empty log prints `(no audit records)`.
+
 ```bash
 sql-write-gate audit
+sql-write-gate audit --limit 50
+sql-write-gate audit --audit-path /tmp/audit.jsonl
 ```
 
 ## 非目标
