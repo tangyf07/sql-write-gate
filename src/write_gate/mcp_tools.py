@@ -28,6 +28,7 @@ def _gate(
     db_path: str | Path | None = None,
     catalog_path: str | Path | None = None,
     policy_path: str | Path | None = None,
+    approvals_path: str | Path | None = None,
     agent: str = "mcp",
 ) -> WriteGate:
     return WriteGate(
@@ -35,6 +36,7 @@ def _gate(
         db_path=_as_path(db_path),
         catalog_path=_as_path(catalog_path),
         policy_path=_as_path(policy_path),
+        approvals_path=_as_path(approvals_path),
         agent=agent or "mcp",
     )
 
@@ -100,6 +102,8 @@ def decision_payload(
         "risk": decision.risk,
         "executed": bool(executed),
     }
+    if getattr(decision, "approval_id", None):
+        payload["approval_id"] = decision.approval_id
     if rowcount is not None:
         payload["rowcount"] = rowcount
     if rows is not None:
@@ -115,6 +119,7 @@ def _execute(
     db_path: str | Path | None = None,
     catalog_path: str | Path | None = None,
     policy_path: str | Path | None = None,
+    approvals_path: str | Path | None = None,
     agent: str = "mcp",
 ) -> dict[str, Any]:
     with _gate(
@@ -122,6 +127,7 @@ def _execute(
         db_path=db_path,
         catalog_path=catalog_path,
         policy_path=policy_path,
+        approvals_path=approvals_path,
         agent=agent,
     ) as gate:
         decision, result = gate.execute(sql)
@@ -144,12 +150,13 @@ def query_sql(
     db_path: str | Path | None = None,
     catalog_path: str | Path | None = None,
     policy_path: str | Path | None = None,
+    approvals_path: str | Path | None = None,
     agent: str = "mcp",
 ) -> dict[str, Any]:
     """Gate then (on ALLOW) execute SQL via WriteGate.execute.
 
     SELECT results include a capped ``rows`` list. BLOCK / REQUIRE_APPROVAL
-    do not run user SQL.
+    do not run user SQL. REQUIRE_APPROVAL is queued (approval_id).
     """
     return _execute(
         sql,
@@ -158,6 +165,7 @@ def query_sql(
         db_path=db_path,
         catalog_path=catalog_path,
         policy_path=policy_path,
+        approvals_path=approvals_path,
         agent=agent,
     )
 
@@ -169,11 +177,13 @@ def write_sql(
     db_path: str | Path | None = None,
     catalog_path: str | Path | None = None,
     policy_path: str | Path | None = None,
+    approvals_path: str | Path | None = None,
     agent: str = "mcp",
 ) -> dict[str, Any]:
     """Gate then (on ALLOW) execute INSERT/UPDATE/DELETE/DDL via WriteGate.execute.
 
     BLOCK / REQUIRE_APPROVAL return executed=false and do not write.
+    REQUIRE_APPROVAL is queued (approval_id); approve <id> later to write.
     """
     return _execute(
         sql,
@@ -182,5 +192,6 @@ def write_sql(
         db_path=db_path,
         catalog_path=catalog_path,
         policy_path=policy_path,
+        approvals_path=approvals_path,
         agent=agent,
     )

@@ -85,6 +85,8 @@ def format_proxy(decision: Decision, result: Any = None, *, as_json: bool = Fals
         f"Reason: {_safe(decision.reason)}",
         f"executed: {'yes' if executed else 'no'}",
     ]
+    if decision.approval_id:
+        lines.append(f"Approval id: {decision.approval_id}")
     return "\n".join(lines)
 
 
