@@ -1,4 +1,4 @@
-"""CLI: sql-write-gate check|exec|audit|hook|mcp|proxy. Also used by python -m write_gate."""
+"""CLI: sql-write-gate check|exec|audit|hook|mcp|proxy|approve|reject|pending."""
 
 from __future__ import annotations
 
@@ -7,9 +7,15 @@ import json
 import sys
 from pathlib import Path
 
+from write_gate.approvals import (
+    ApprovalError,
+    get_approval,
+    list_pending,
+    mark_rejected,
+)
 from write_gate.audit import format_audit_table, read_audit
 from write_gate.decision import ACTION_ALLOW, ACTION_APPROVAL, ACTION_BLOCK, Decision
-from write_gate.paths import AUDIT_PATH
+from write_gate.paths import APPROVALS_PATH, AUDIT_PATH
 from write_gate.wrapper import WriteGate
 
 
@@ -32,6 +38,8 @@ def format_decision(decision: Decision) -> str:
     ]
     if decision.estimated_rows is not None:
         lines.append(f"Estimated rows: {decision.estimated_rows}")
+    if decision.approval_id:
+        lines.append(f"Approval id: {decision.approval_id}")
     return "\n".join(lines)
 
 
@@ -41,13 +49,30 @@ def _safe(value: object) -> str:
     return str(value)
 
 
+def _approvals_path(args: argparse.Namespace) -> Path:
+    raw = getattr(args, "approvals", None)
+    return Path(raw) if raw else APPROVALS_PATH
+
+
 def _gate_from_args(args: argparse.Namespace) -> WriteGate:
     return WriteGate(
         db_path=Path(args.db) if getattr(args, "db", None) else None,
         database=getattr(args, "database", None),
         catalog_path=Path(args.catalog) if getattr(args, "catalog", None) else None,
         policy_path=Path(args.policy) if getattr(args, "policy", None) else None,
+        approvals_path=_approvals_path(args),
         agent=getattr(args, "agent", None) or "cli",
+    )
+
+
+def _gate_from_record(rec, *, approvals_path: Path, agent: str = "approve") -> WriteGate:
+    return WriteGate(
+        database=rec.database,
+        db_path=Path(rec.db_path) if rec.db_path else None,
+        catalog_path=Path(rec.catalog_path) if rec.catalog_path else None,
+        policy_path=Path(rec.policy_path) if rec.policy_path else None,
+        approvals_path=approvals_path,
+        agent=agent,
     )
 
 
@@ -85,6 +110,10 @@ def _add_shared(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--agent", default="cli", help="Audit agent name")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+    parser.add_argument(
+        "--approvals",
+        help="Path to approvals jsonl (default: .logs/approvals.jsonl)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -151,6 +180,33 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="HOST:PORT",
         help="Text protocol: one SQL per connection then close (tests: 127.0.0.1:0)",
+    )
+
+    queue = argparse.ArgumentParser(add_help=False)
+    queue.add_argument(
+        "--approvals",
+        help="Path to approvals jsonl (default: .logs/approvals.jsonl)",
+    )
+    queue.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+
+    approve_p = sub.add_parser(
+        "approve",
+        help="Execute a pending approval id (re-runs guards; env approval only is cleared)",
+        parents=[queue],
+    )
+    approve_p.add_argument("approval_id", help="Pending approval id")
+
+    reject_p = sub.add_parser(
+        "reject",
+        help="Reject a pending approval id without writing",
+        parents=[queue],
+    )
+    reject_p.add_argument("approval_id", help="Pending approval id")
+
+    sub.add_parser(
+        "pending",
+        help="List pending approval ids",
+        parents=[queue],
     )
     return parser
 
@@ -221,6 +277,58 @@ def _cmd_proxy(args: argparse.Namespace) -> int:
         )
 
 
+def _cmd_approve(args: argparse.Namespace) -> int:
+    path = _approvals_path(args)
+    rec = get_approval(args.approval_id, path=path)
+    if rec is None or rec.status != "pending":
+        sys.stderr.write(f"approval not found or not pending: {args.approval_id}\n")
+        return 1
+    with _gate_from_record(rec, approvals_path=path, agent="approve") as gate:
+        try:
+            decision, result = gate.approve(rec.id)
+        except ApprovalError as exc:
+            sys.stderr.write(str(exc) + "\n")
+            return 1
+    return _print_decision(decision, as_json=bool(args.json), result=result)
+
+
+def _cmd_reject(args: argparse.Namespace) -> int:
+    path = _approvals_path(args)
+    rec = get_approval(args.approval_id, path=path)
+    if rec is None or rec.status != "pending":
+        sys.stderr.write(f"approval not found or not pending: {args.approval_id}\n")
+        return 1
+    try:
+        rec = mark_rejected(rec.id, path=path)
+    except ApprovalError as exc:
+        sys.stderr.write(str(exc) + "\n")
+        return 1
+    if args.json:
+        json.dump(rec.to_dict(), sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+    else:
+        sys.stdout.write(f"REJECTED\nApproval id: {rec.id}\n")
+    return 0
+
+
+def _cmd_pending(args: argparse.Namespace) -> int:
+    path = _approvals_path(args)
+    rows = list_pending(path=path)
+    if args.json:
+        json.dump([r.to_dict() for r in rows], sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+        return 0
+    if not rows:
+        sys.stdout.write("(no pending approvals)\n")
+        return 0
+    for rec in rows:
+        decision = rec.decision if isinstance(rec.decision, dict) else {}
+        op = decision.get("operation") or "-"
+        table = decision.get("table") or "-"
+        sys.stdout.write(f"{rec.id}  {rec.status}  {op}  {table}\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -239,6 +347,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "proxy":
         return _cmd_proxy(args)
+
+    if args.command == "approve":
+        return _cmd_approve(args)
+
+    if args.command == "reject":
+        return _cmd_reject(args)
+
+    if args.command == "pending":
+        return _cmd_pending(args)
 
     with _gate_from_args(args) as gate:
         if args.command == "check":
