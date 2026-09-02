@@ -10,6 +10,7 @@ from write_gate.cases import (
     READ_ONLY_SQL,
     SCHEMA_MISMATCH_SQL,
 )
+from write_gate.config import demo_policy
 from write_gate.db import ORDERS_DDL
 from write_gate.wrapper import WriteGate
 
@@ -24,7 +25,12 @@ def gate(tmp_path):
         "(1, 1001, 12.5, DATE '2026-09-01', 'a@example.com', '13800000001', 'paid'),"
         "(2, 1002, 9.9, DATE '2026-08-01', 'b@example.com', '13800000002', 'pending')"
     )
-    g = WriteGate(db_path=db_path, conn=conn)
+    g = WriteGate(
+        db_path=db_path,
+        conn=conn,
+        policy=demo_policy(),
+        audit_path=tmp_path / "audit.jsonl",
+    )
     yield g
     g.close()
 

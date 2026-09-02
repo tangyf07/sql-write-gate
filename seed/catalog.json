@@ -22,7 +22,11 @@
         "dt",
         "status"
       ],
-      "pii_columns": ["email", "phone"]
+      "pii_columns": [
+        "email",
+        "phone"
+      ],
+      "restricted_columns": []
     }
   }
 }

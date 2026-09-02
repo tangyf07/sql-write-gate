@@ -8,7 +8,7 @@ from write_gate.cases import (
     SCHEMA_MISMATCH_SQL,
     TYPE_MISMATCH_SQL,
 )
-from write_gate.catalog import load_catalog
+from write_gate.catalog import Catalog, TableSpec, load_catalog
 from write_gate.policy import evaluate
 
 
@@ -20,6 +20,7 @@ def test_read_only_select_allowed():
     ev = evaluate(READ_ONLY_SQL, _catalog())
     assert ev.allowed is True
     assert ev.rule_id == "ok"
+    assert ev.action == "ALLOW"
 
 
 def test_legal_insert_allowed():
@@ -83,7 +84,43 @@ def test_update_expired_partition_rejected():
     assert ev.rule_id == "expired_partition"
 
 
-def test_select_star_allowed():
+def test_select_star_requires_approval_for_pii():
     ev = evaluate("SELECT * FROM orders", _catalog())
-    assert ev.allowed is True
-    assert ev.rule_id == "ok"
+    assert ev.action == "REQUIRE_APPROVAL"
+    assert ev.allowed is False
+    assert ev.rule_id == "pii_column"
+
+
+def test_select_pii_column_requires_approval():
+    ev = evaluate("SELECT id, email FROM orders LIMIT 10", _catalog())
+    assert ev.action == "REQUIRE_APPROVAL"
+    assert ev.rule_id == "pii_column"
+    assert ev.allowed is False
+
+
+def test_restricted_column_write_blocked():
+    base = _catalog()
+    orders = base.table("orders")
+    assert orders is not None
+    spec = TableSpec(
+        name=orders.name,
+        writable=orders.writable,
+        stale=orders.stale,
+        partition_column=orders.partition_column,
+        columns={**orders.columns, "id_card": "VARCHAR", "card_number": "VARCHAR"},
+        allowed_write_columns=orders.allowed_write_columns,
+        pii_columns=orders.pii_columns,
+        restricted_columns=frozenset({"id_card", "card_number"}),
+    )
+    catalog = Catalog(
+        as_of_date=base.as_of_date,
+        freshness_days=base.freshness_days,
+        tables={"orders": spec},
+    )
+    ev = evaluate(
+        "INSERT INTO orders (order_id, user_id, amount, dt, status, id_card) "
+        "VALUES (1, 2, 3.0, '2026-09-01', 'paid', 'X')",
+        catalog,
+    )
+    assert ev.action == "BLOCK"
+    assert ev.rule_id == "restricted_column"
