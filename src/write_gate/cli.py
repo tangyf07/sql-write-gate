@@ -1,4 +1,4 @@
-"""CLI: sql-write-gate check|exec|audit|hook. Also used by python -m write_gate."""
+"""CLI: sql-write-gate check|exec|audit|hook|mcp. Also used by python -m write_gate."""
 
 from __future__ import annotations
 
@@ -123,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Raw SQL to evaluate (tests; still never executed)",
     )
+
+    sub.add_parser(
+        "mcp",
+        help="Start MCP stdio server (query_sql / write_sql; check only)",
+        parents=[shared],
+    )
     return parser
 
 
@@ -153,6 +159,29 @@ def _cmd_hook(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    try:
+        from write_gate.mcp_server import run_server
+    except ImportError:
+        sys.stderr.write('pip install -e ".[mcp]"\n')
+        return 1
+    agent = getattr(args, "agent", None)
+    if not agent or agent == "cli":
+        agent = "mcp"
+    try:
+        run_server(
+            database=getattr(args, "database", None),
+            db=getattr(args, "db", None),
+            catalog=getattr(args, "catalog", None),
+            policy=getattr(args, "policy", None),
+            agent=agent,
+        )
+    except ImportError:
+        sys.stderr.write('pip install -e ".[mcp]"\n')
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -165,6 +194,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "hook":
         return _cmd_hook(args)
+
+    if args.command == "mcp":
+        return _cmd_mcp(args)
 
     with _gate_from_args(args) as gate:
         if args.command == "check":
