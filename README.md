@@ -167,6 +167,21 @@ python -c 'from write_gate.mcp_tools import write_sql, query_sql; print(write_sq
 
 `SELECT order_id FROM orders LIMIT 1` is also ALLOW. Production policy allows SELECT; `DELETE FROM orders` is still BLOCK. v0.3 hook and v0.1/v0.2 `check` paths are unchanged.
 
+## v0.5 — ALLOW writes persist
+
+MCP `write_sql` / `query_sql` call `WriteGate.execute`. **ALLOW writes persist; BLOCK and REQUIRE_APPROVAL do not.** Same path if `DATABASE_URL` is `postgres://` / `postgresql://`. **No LLM. No API key.**
+
+30-second no-IDE demo (no Agent, no LLM, no API key):
+
+```bash
+python -c 'from write_gate.cases import LEGAL_WRITE_SQL; from write_gate.mcp_tools import write_sql, query_sql; from write_gate.paths import DEMO_POLICY_PATH; print(write_sql(LEGAL_WRITE_SQL, policy_path=DEMO_POLICY_PATH)); print(query_sql("SELECT order_id FROM orders WHERE order_id = 900001")); print(write_sql("DELETE FROM orders"))'
+# ALLOW insert persists (order_id=900001)
+# SELECT finds the row
+# BLOCK / delete_without_where
+```
+
+`sql-write-gate check "DELETE FROM orders"` is still BLOCK. Hook `psql -c DELETE FROM orders` still exit 2. `query_sql("SELECT 1")` still ALLOW.
+
 ## Policy
 
 Default (`policy.yaml` / `examples/policy.yaml`) is **production**:
