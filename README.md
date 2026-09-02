@@ -5,7 +5,7 @@
 Prevent Claude Code, Codex, Cursor and MCP agents from executing unsafe database operations.
 
 ```
-  Agent SQL  ──►  sql-write-gate  ──►  ALLOW / BLOCK / APPROVAL  ──►  Database
+  Agent SQL  ─►  sql-write-gate  ─►  ALLOW / BLOCK / APPROVAL  ─►  Database
 ```
 
 Deterministic policy engine (sqlglot AST + catalog + policy.yaml). **No LLM. No API key.**
@@ -77,6 +77,60 @@ sql-write-gate check --database "$DATABASE_URL" "DELETE FROM orders"
 Blast-radius on Postgres uses `SELECT COUNT(*) ... WHERE <predicate>` (same `update_rows` / `delete_rows` limits as DuckDB). Optional driver: `pip install -e ".[postgres]"`. Default `pip install -e .` stays DuckDB-only.
 
 The 30-second path above is unchanged.
+
+## v0.3 — Claude Code / Codex PreToolUse hook
+
+Agents cannot talk to the DB via raw `psql` (also `mysql`, `mysqlsh`, `duckdb`, `sqlite3`). They must go through `sql-write-gate`. The hook never executes SQL; raw `psql` is never the write path.
+
+Copy into the project `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sql-write-gate hook"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Copy into `.codex/hooks.json` (PreToolUse at root — no wrapping `hooks` key):
+
+```json
+{
+  "PreToolUse": [
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "sql-write-gate hook"
+        }
+      ]
+    }
+  ]
+}
+```
+
+30-second no-IDE demo (no LLM, no API key):
+
+```bash
+printf '%s\n' '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"psql -c DELETE FROM orders"}}' \
+  | sql-write-gate hook
+# exit 2 / BLOCKED / delete_without_where
+```
+
+Non-SQL bash (`ls`, `pytest`) is allowed and stays quiet. Interactive `psql` (no `-c`) is blocked: use `sql-write-gate check|exec`. `REQUIRE_APPROVAL` is also refused (exit 2) so agents cannot silently write in production.
+
+DuckDB 30-second path (`sql-write-gate check "DELETE FROM orders"` / `make demo`) is unchanged.
 
 ## Policy
 
