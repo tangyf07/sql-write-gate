@@ -132,6 +132,41 @@ Non-SQL bash (`ls`, `pytest`) is allowed and stays quiet. Interactive `psql` (no
 
 DuckDB 30-second path (`sql-write-gate check "DELETE FROM orders"` / `make demo`) is unchanged.
 
+## v0.4 — MCP stdio tools
+
+Agents call sql-write-gate as MCP tools. Every `query_sql` / `write_sql` goes through `WriteGate.check` (never `execute`). **No LLM. No API key.** Default `pip install -e .` stays without the MCP SDK.
+
+```bash
+pip install -e ".[mcp]"
+sql-write-gate mcp
+# optional: sql-write-gate mcp --database "$DATABASE_URL"
+```
+
+If the extra is missing, the CLI prints `pip install -e ".[mcp]"` and exits 1.
+
+Wire it (Claude / Codex `mcpServers`); copy [examples/mcp/config.json](examples/mcp/config.json):
+
+```json
+{
+  "mcpServers": {
+    "sql-write-gate": {
+      "command": "sql-write-gate",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+30-second no-IDE demo (no Agent, no LLM, no API key):
+
+```bash
+python -c 'from write_gate.mcp_tools import write_sql, query_sql; print(write_sql("DELETE FROM orders")); print(query_sql("SELECT 1"))'
+# BLOCK / delete_without_where
+# ALLOW / ok
+```
+
+`SELECT order_id FROM orders LIMIT 1` is also ALLOW. Production policy allows SELECT; `DELETE FROM orders` is still BLOCK. v0.3 hook and v0.1/v0.2 `check` paths are unchanged.
+
 ## Policy
 
 Default (`policy.yaml` / `examples/policy.yaml`) is **production**:
