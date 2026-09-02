@@ -55,6 +55,29 @@ make test                 # pytest -q
 
 `python -m write_gate check "DELETE FROM orders"` works the same.
 
+## v0.2 — PostgreSQL adapter
+
+DuckDB is still the default. Pass a URL to use Postgres; all v0.1 guards apply on both adapters.
+
+```python
+from write_gate import WriteGate
+
+gate = WriteGate(database="postgresql://user:pass@localhost:5432/app")
+decision, result = gate.execute("DELETE FROM orders")
+# BLOCKED / delete_without_where  (AST path; no live `orders` table required)
+```
+
+```bash
+sql-write-gate check --database "$DATABASE_URL" "DELETE FROM orders"
+# or: export DATABASE_URL=postgresql://...
+```
+
+`postgres://` and `postgresql://` select Postgres; anything else is a DuckDB file path. `WriteGate(database=...)` / `database_url=` / env `DATABASE_URL` are equivalent.
+
+Blast-radius on Postgres uses `SELECT COUNT(*) ... WHERE <predicate>` (same `update_rows` / `delete_rows` limits as DuckDB). Optional driver: `pip install -e ".[postgres]"`. Default `pip install -e .` stays DuckDB-only.
+
+The 30-second path above is unchanged.
+
 ## Policy
 
 Default (`policy.yaml` / `examples/policy.yaml`) is **production**:
@@ -121,10 +144,10 @@ sql-write-gate audit
 
 - 企业级 DQ / 数据质量平台、血缘 lineage
 - ChatBI、SSO、多租户、计费
-- LangGraph / CrewAI / 远程 MCP / 在线模型 / PostgreSQL / Web UI / PyPI publish
+- LangGraph / CrewAI / 远程 MCP / 在线模型 / Web UI / PyPI publish
 - spark-retail-dw 克隆、Spark 数仓、海量数据
 
-DuckDB only. Local, deterministic, screenshot-ready.
+Local, deterministic, screenshot-ready. DuckDB by default; Postgres via URL.
 
 ## 许可
 

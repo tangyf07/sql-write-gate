@@ -13,7 +13,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from write_gate.cases import EXPIRED_WRITE_SQL, LEGAL_WRITE_SQL, PII_WRITE_SQL  # noqa: E402
-from write_gate.paths import DEMO_POLICY_PATH  # noqa: E402
+from write_gate.paths import DB_PATH, DEMO_POLICY_PATH  # noqa: E402
 from write_gate.wrapper import WriteGate  # noqa: E402
 
 
@@ -33,7 +33,7 @@ def _banner(title: str) -> None:
 
 def main() -> int:
     rc = 0
-    with WriteGate(policy_path=DEMO_POLICY_PATH) as gate:
+    with WriteGate(db_path=DB_PATH, policy_path=DEMO_POLICY_PATH) as gate:
         for title, sql, expect_allow, expect_rule in CASES:
             _banner(title)
             print(f"SQL:\n  {sql}")

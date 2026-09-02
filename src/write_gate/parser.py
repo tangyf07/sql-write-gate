@@ -213,12 +213,12 @@ def extract_where(stmt: exp.Expression) -> exp.Expression | None:
     return where
 
 
-def where_sql(where: exp.Expression | None) -> str | None:
+def where_sql(where: exp.Expression | None, dialect: str = "duckdb") -> str | None:
     if where is None:
         return None
     if isinstance(where, exp.Where):
-        return where.this.sql(dialect="duckdb") if where.this else None
-    return where.sql(dialect="duckdb")
+        return where.this.sql(dialect=dialect) if where.this else None
+    return where.sql(dialect=dialect)
 
 
 def _select_columns(stmt: exp.Expression) -> tuple[list[str], bool]:
@@ -311,7 +311,7 @@ def partition_dates_from_insert(
     return dates
 
 
-def parse(sql: str) -> ParsedSQL:
+def parse(sql: str, dialect: str = "duckdb") -> ParsedSQL:
     original = sql
     stripped = sql.strip().rstrip(";").strip()
     parsed = ParsedSQL(sql=original)
@@ -319,11 +319,19 @@ def parse(sql: str) -> ParsedSQL:
         parsed.error = "SQL 为空，无法执行"
         return parsed
 
+    read_dialect = dialect or "duckdb"
     try:
-        statements = sqlglot.parse(stripped, read="duckdb")
+        statements = sqlglot.parse(stripped, read=read_dialect)
     except sqlglot.errors.ParseError as exc:
-        parsed.error = f"SQL 无法解析: {exc}"
-        return parsed
+        if read_dialect != "duckdb":
+            try:
+                statements = sqlglot.parse(stripped, read="duckdb")
+            except sqlglot.errors.ParseError as exc2:
+                parsed.error = f"SQL 无法解析: {exc2}"
+                return parsed
+        else:
+            parsed.error = f"SQL 无法解析: {exc}"
+            return parsed
 
     statements = [s for s in statements if s is not None]
     if not statements:
