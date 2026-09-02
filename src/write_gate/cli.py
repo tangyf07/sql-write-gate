@@ -1,4 +1,4 @@
-"""CLI: sql-write-gate check|exec|audit|hook|mcp. Also used by python -m write_gate."""
+"""CLI: sql-write-gate check|exec|audit|hook|mcp|proxy. Also used by python -m write_gate."""
 
 from __future__ import annotations
 
@@ -129,6 +129,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Start MCP stdio server (query_sql / write_sql; ALLOW executes)",
         parents=[shared],
     )
+
+    proxy_p = sub.add_parser(
+        "proxy",
+        help="Front a real DB: gate SQL then execute if ALLOW",
+        parents=[shared],
+    )
+    proxy_p.add_argument(
+        "--sql",
+        dest="proxy_sql",
+        default=None,
+        help="One SQL statement then exit",
+    )
+    proxy_p.add_argument(
+        "--once",
+        action="store_true",
+        help="Exit after one statement (default when --sql is set; stdin also exits on EOF)",
+    )
+    proxy_p.add_argument(
+        "--listen",
+        default=None,
+        metavar="HOST:PORT",
+        help="Text protocol: one SQL per connection then close (tests: 127.0.0.1:0)",
+    )
     return parser
 
 
@@ -182,6 +205,22 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_proxy(args: argparse.Namespace) -> int:
+    from write_gate.proxy import run_cli
+
+    agent = getattr(args, "agent", None)
+    if not agent or agent == "cli":
+        args.agent = "proxy"
+    with _gate_from_args(args) as gate:
+        return run_cli(
+            gate,
+            sql=getattr(args, "proxy_sql", None),
+            listen=getattr(args, "listen", None),
+            once=bool(getattr(args, "once", False)),
+            as_json=bool(getattr(args, "json", False)),
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -197,6 +236,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "mcp":
         return _cmd_mcp(args)
+
+    if args.command == "proxy":
+        return _cmd_proxy(args)
 
     with _gate_from_args(args) as gate:
         if args.command == "check":
