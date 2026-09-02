@@ -29,6 +29,17 @@ sql-write-gate check "DELETE FROM orders"
 # → BLOCKED  rule=delete_without_where   (no API key)
 ```
 
+## Commands
+
+```bash
+sql-write-gate check "SQL"       # evaluate SQL; no execute
+sql-write-gate hook              # PreToolUse: block raw psql
+sql-write-gate mcp               # MCP stdio (query_sql / write_sql)
+sql-write-gate proxy --sql "..." # gate then execute if ALLOW
+sql-write-gate approve <id>      # human approve then write
+sql-write-gate audit             # TIME / SOURCE / OP / TABLE / VERDICT
+```
+
 ## What it blocks
 
 - [x] `DROP TABLE` / `TRUNCATE` / `ALTER TABLE`
@@ -54,9 +65,11 @@ sql-write-gate audit
 # TIME              SOURCE  OP      TABLE   VERDICT  RULE
 # 2026-09-03 00:40  cli     delete  orders  BLOCK    delete_without_where
 
-make demo                 # three write cases (uses examples/policy.demo.yaml)
+make demo                 # three write cases + check/hook/mcp/proxy/approve/audit
 make test                 # pytest -q
 ```
+
+`make demo` covers the walkthrough (check / hook / mcp / proxy / approve / audit) after the three DuckDB write cases.
 
 `python -m write_gate check "DELETE FROM orders"` works the same.
 
@@ -249,6 +262,23 @@ sql-write-gate audit
 
 `DELETE FROM orders` is still **BLOCK**. Hook `psql -c DELETE FROM orders` still exit 2. Proxy `DELETE FROM orders` still BLOCK. MCP `write_sql("DELETE FROM orders")` still BLOCK. `approve` still writes only after a human id.
 
+## v0.9 — Take-out-ready 0.9.0
+
+Version **0.9.0**. First screen lists check / hook / mcp / proxy / approve / audit. `make demo` walks those CLIs after the three DuckDB write cases (legal ALLOW / expired BLOCK / PII BLOCK). MCP demo calls `write_sql` / `query_sql` (does not hang on stdio). Approve runs on an isolated DuckDB copy so the demo warehouse stays intact. **No LLM. No API key. No PyPI publish. Guards unchanged.**
+
+```bash
+make demo
+# three cases, then:
+# check DELETE FROM orders            → BLOCK
+# hook --command psql -c DELETE ...   → BLOCK exit 2
+# write_sql DELETE / query_sql SELECT 1
+# proxy --sql DELETE FROM orders      → BLOCK
+# exec INSERT (production) → pending; approve <id>; SELECT finds the row
+# audit --audit-path ...              → TIME SOURCE OP TABLE VERDICT
+```
+
+`sql-write-gate check "DELETE FROM orders"` is still **BLOCK**. Hook still exit 2. Proxy DELETE still BLOCK.
+
 ## Policy
 
 Default (`policy.yaml` / `examples/policy.yaml`) is **production**:
@@ -288,6 +318,8 @@ Dates anchored `as_of=2026-09-02`; partitions older than 7 days (`dt < 2026-08-2
 | 1 | 合法写入：新鲜分区 `dt='2026-09-01'`，只写 `order_id,user_id,amount,dt,status` | ALLOWED | `ok` |
 | 2 | 过期分区：`dt='2026-08-01'` | BLOCKED | `expired_partition` |
 | 3 | PII 写入：INSERT 带 `email` | BLOCKED | `pii_column` |
+
+`make demo` then walks check / hook / mcp / proxy / approve / audit (approve uses an isolated DuckDB copy).
 
 示例表 `orders` 列：`order_id, user_id, amount, dt, email, phone, status`。种子约 120 行。
 
