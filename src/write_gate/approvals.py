@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from write_gate.decision import Decision
-from write_gate.paths import APPROVALS_PATH, LOG_DIR
+from write_gate.paths import default_approvals_path, default_log_dir
 
 STATUS_PENDING = "pending"
 STATUS_APPROVED = "approved"
@@ -81,7 +81,7 @@ def _new_id() -> str:
 
 
 def _path(path: Path | str | None = None) -> Path:
-    return Path(path) if path else APPROVALS_PATH
+    return Path(path) if path else default_approvals_path()
 
 
 def _load(path: Path) -> dict[str, dict[str, Any]]:
@@ -202,4 +202,4 @@ def mark_rejected(approval_id: str, path: Path | str | None = None) -> ApprovalR
 
 
 def ensure_log_dir() -> None:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    default_log_dir().mkdir(parents=True, exist_ok=True)
