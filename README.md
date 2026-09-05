@@ -1,5 +1,11 @@
 # sql-write-gate
 
+[![CI](https://github.com/tangyf07/sql-write-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/tangyf07/sql-write-gate/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/tangyf07/sql-write-gate)](https://github.com/tangyf07/sql-write-gate/releases/latest)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+
 写库前门禁 · Policy firewall for AI agents writing to databases.
 
 Prevent Claude Code, Codex, Cursor and MCP agents from executing unsafe database operations.
@@ -282,6 +288,10 @@ make demo
 ## v0.12 — GitHub Release
 
 Tagged **v0.11.0** with [CHANGELOG.md](CHANGELOG.md) and a GitHub Release. No PyPI publish. No product behavior change.
+
+## v0.14 — README badges + v0.13.0 Release
+
+README badges (CI / Release / Python / License). Tagged **v0.13.0** with a GitHub Release. No PyPI. No product behavior change.
 
 ## v0.13 — SQLite adapter
 
