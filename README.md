@@ -283,6 +283,24 @@ make demo
 
 Tagged **v0.11.0** with [CHANGELOG.md](CHANGELOG.md) and a GitHub Release. No PyPI publish. No product behavior change.
 
+## v0.13 — SQLite adapter
+
+Version **0.13.0**. `sqlite:///` and `sqlite+aiosqlite://` (file-path form) select the SQLite adapter (sqlglot dialect `sqlite`, stdlib `sqlite3` — no extra install).
+
+```bash
+sql-write-gate check --database sqlite:////tmp/wg.db "DELETE FROM orders"
+# → BLOCKED  rule=delete_without_where   (no live tables required)
+```
+
+```python
+from write_gate import WriteGate
+
+gate = WriteGate(database="sqlite:////tmp/x.db")
+gate.check("DELETE FROM orders")  # BLOCK delete_without_where
+```
+
+AST guards still fire without a live DB. DuckDB / Postgres / MySQL / hook / MCP / CI paths are unchanged. **No Web UI. No PyPI publish.**
+
 ## v0.11 — GitHub Actions CI
 
 Push and pull requests to `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): `pip install -e ".[dev]"` then `make test`. No product behavior change.
