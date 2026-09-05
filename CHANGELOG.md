@@ -2,6 +2,20 @@
 
 All notable changes to **sql-write-gate** are documented here.
 
+## [0.15.0] — 2026-09-05
+
+### Added
+
+- `sql-write-gate init` scaffolds a starter project: `policy.yaml`, `catalog.json`, `GETTING_STARTED.md`
+- Options: `--dir PATH` (default `.`), `--force` to overwrite existing files
+- Without `--force`, existing files are skipped and listed; missing files are created
+- Packaged templates under `write_gate/templates/`
+
+### Notes
+
+- README first-screen six-command list unchanged (`check` / `hook` / `mcp` / `proxy` / `approve` / `audit`)
+- No Web UI. No PyPI publish.
+
 ## [0.14.0] — 2026-09-05
 
 ### Changed
