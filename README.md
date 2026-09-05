@@ -293,6 +293,18 @@ Tagged **v0.11.0** with [CHANGELOG.md](CHANGELOG.md) and a GitHub Release. No Py
 
 README badges (CI / Release / Python / License). Tagged **v0.13.0** with a GitHub Release. No PyPI. No product behavior change.
 
+## v0.15 — `init` starter scaffold
+
+Version **0.15.0**. Scaffold a starter project in the current directory (or `--dir`):
+
+```bash
+sql-write-gate init
+sql-write-gate init --dir /path/to/project
+sql-write-gate init --force   # overwrite existing starter files
+```
+
+Writes `policy.yaml`, `catalog.json`, and `GETTING_STARTED.md` (shortest usage). Existing files are skipped unless `--force`. See `GETTING_STARTED.md` for `check "DELETE FROM orders"` and optional `--db` / `--database`.
+
 ## v0.13 — SQLite adapter
 
 Version **0.13.0**. `sqlite:///` and `sqlite+aiosqlite://` (file-path form) select the SQLite adapter (sqlglot dialect `sqlite`, stdlib `sqlite3` — no extra install).
