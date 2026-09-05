@@ -39,7 +39,7 @@ def check_freshness(ctx) -> GuardResult:
 
     if parsed.operation == "insert":
         rows = parsed.insert_rows or []
-        cols = parsed.write_columns
+        cols = list(getattr(parsed, "insert_columns", None) or []) or list(parsed.columns) or list(parsed.write_columns)
         dates = partition_dates_from_insert(cols, rows, part)
         return _evaluate_dates(
             spec,
