@@ -1,4 +1,4 @@
-"""CLI: sql-write-gate check|exec|audit|hook|mcp|proxy|approve|reject|pending."""
+"""CLI: sql-write-gate check|exec|audit|hook|mcp|proxy|approve|reject|pending|init."""
 
 from __future__ import annotations
 
@@ -104,7 +104,8 @@ def _add_shared(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--database",
         help=(
-            "DuckDB file path or postgres:// / mysql:// / mysql+pymysql:// URL "
+            "DuckDB file path or postgres:// / mysql:// / mysql+pymysql:// / "
+            "sqlite:/// / sqlite+aiosqlite:// URL "
             "(default: DATABASE_URL, then local DuckDB)"
         ),
     )
@@ -207,6 +208,21 @@ def build_parser() -> argparse.ArgumentParser:
         "pending",
         help="List pending approval ids",
         parents=[queue],
+    )
+
+    init_p = sub.add_parser(
+        "init",
+        help="Scaffold policy.yaml, catalog.json, GETTING_STARTED.md",
+    )
+    init_p.add_argument(
+        "--dir",
+        default=".",
+        help="Target directory (default: current directory)",
+    )
+    init_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing starter files",
     )
     return parser
 
@@ -329,6 +345,14 @@ def _cmd_pending(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_init(args: argparse.Namespace) -> int:
+    from write_gate.init import format_init_report, init_project
+
+    result = init_project(args.dir, force=bool(args.force))
+    sys.stdout.write(format_init_report(result, args.dir))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -356,6 +380,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "pending":
         return _cmd_pending(args)
+
+    if args.command == "init":
+        return _cmd_init(args)
 
     with _gate_from_args(args) as gate:
         if args.command == "check":
