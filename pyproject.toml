@@ -1,6 +1,6 @@
 [project]
 name = "write-gate"
-version = "0.13.0"
+version = "0.15.0"
 description = "Policy firewall for AI agents writing to databases (sql-write-gate)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -31,3 +31,6 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-q"
+
+[tool.setuptools.package-data]
+write_gate = ["templates/*"]
