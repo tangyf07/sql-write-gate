@@ -28,6 +28,7 @@ _SQL_FLAGS: dict[str, tuple[str, ...]] = {
 }
 
 _WRAPPERS = {"sudo", "env", "command", "nohup", "time", "nice", "stdbuf", "timeout"}
+_SHELL_BINARIES = {"bash", "sh", "zsh", "dash", "ksh"}
 
 _SHELL_OPS = {"&&", "||", "|", ";", "&"}
 
@@ -154,6 +155,26 @@ def _extract_from_cli(cli: str, tokens: list[str]) -> tuple[list[str], bool]:
     i = 1
     while i < len(tokens):
         t = tokens[i]
+        # Glued short flag: -cDELETE... / -eDELETE... (shlex keeps as one token)
+        peeled = None
+        for flag in _SQL_FLAGS.get(cli, ()):
+            if flag.startswith("--"):
+                continue
+            if t.startswith(flag) and len(t) > len(flag):
+                peeled = t[len(flag):]
+                if peeled.startswith("="):
+                    peeled = peeled[1:]
+                break
+        if peeled is not None:
+            extra, i = _collect_sql_tokens(tokens, i + 1)
+            joined = " ".join([peeled, *extra]).strip() if extra else peeled.strip()
+            if ";" in joined:
+                joined = joined.split(";", 1)[0].strip()
+            if joined:
+                sqls.append(joined)
+            else:
+                incomplete_flag = True
+            continue
         if t.startswith("--") and "=" in t:
             flag, _, value = t.partition("=")
             if _is_sql_flag(cli, flag):
@@ -193,8 +214,54 @@ def _extract_from_cli(cli: str, tokens: list[str]) -> tuple[list[str], bool]:
     return [], False
 
 
+def _unglue_shell_ops(tokens: list[str]) -> list[str]:
+    """Split glued shell operators: ``ls;psql`` → ``ls``, ``;``, ``psql``."""
+    out: list[str] = []
+    for t in tokens:
+        if t in _SHELL_OPS:
+            out.append(t)
+            continue
+        # Only unglue `;` (ticket: semicolon-glued without spaces). Keep && / || intact
+        # when they appear as their own tokens from shlex.
+        if ";" in t:
+            parts = t.split(";")
+            for i, part in enumerate(parts):
+                if part:
+                    out.append(part)
+                if i < len(parts) - 1:
+                    out.append(";")
+            continue
+        out.append(t)
+    return out
+
+
+def _extract_shell_c_arg(tokens: list[str]) -> str | None:
+    """Return the script argument of ``bash/sh -c '...'`` / ``-lc`` forms."""
+    i = 1
+    while i < len(tokens):
+        t = tokens[i]
+        if t in ("-c", "--command"):
+            return tokens[i + 1] if i + 1 < len(tokens) else None
+        if t.startswith("--"):
+            i += 1
+            continue
+        if t.startswith("-") and not t.startswith("--"):
+            # Combined short flags: -lc, -c, -ec, …
+            if "c" in t[1:]:
+                return tokens[i + 1] if i + 1 < len(tokens) else None
+            i += 1
+            continue
+        break
+    return None
+
+
+
 def inspect_bash(command: str) -> list[_Segment]:
-    """Inspect a bash command for DB CLIs. Empty list means not a DB CLI."""
+    """Inspect a bash command for DB CLIs. Empty list means not a DB CLI.
+
+    Also unwraps ``bash/sh -c '…'`` and semicolon-glued commands without spaces
+    (e.g. ``ls;psql -c 'DELETE …'``) so agents cannot bypass the hook.
+    """
     try:
         tokens = shlex.split(command, posix=True)
     except ValueError:
@@ -203,12 +270,18 @@ def inspect_bash(command: str) -> list[_Segment]:
             return [_Segment(cli=match.group(1).lower(), sqls=(), raw=True)]
         return []
 
+    tokens = _unglue_shell_ops(tokens)
     found: list[_Segment] = []
     for raw_seg in _split_segments(tokens):
         stripped = _skip_wrappers(raw_seg)
         if not stripped:
             continue
         cli = _basename(stripped[0])
+        if cli in _SHELL_BINARIES:
+            inner = _extract_shell_c_arg(stripped)
+            if inner:
+                found.extend(inspect_bash(inner))
+            continue
         if cli not in DB_CLIS:
             continue
         sqls, incomplete = _extract_from_cli(cli, stripped)
