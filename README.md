@@ -301,6 +301,10 @@ Tagged **v0.11.0** with [CHANGELOG.md](CHANGELOG.md) and a GitHub Release. No Py
 
 README badges (CI / Release / Python / License). Tagged **v0.13.0** with a GitHub Release. No PyPI. No product behavior change.
 
+## v0.16.1 — installed-path defaults
+
+After `pip install sql-write-gate` and `sql-write-gate init`, bare `sql-write-gate check "DELETE FROM orders"` uses `./policy.yaml` + `./catalog.json` (no `FileNotFoundError` on a fake `seed/catalog.json`).
+
 ## v0.16 — PyPI package name `sql-write-gate`
 
 Version **0.16.0**. Distribution name on PyPI is **`sql-write-gate`** (was `write-gate` in earlier pyproject drafts). Import package stays `write_gate`; CLI entry stays `sql-write-gate`.
