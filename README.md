@@ -293,6 +293,10 @@ Tagged **v0.11.0** with [CHANGELOG.md](CHANGELOG.md) and a GitHub Release. No Py
 
 README badges (CI / Release / Python / License). Tagged **v0.13.0** with a GitHub Release. No PyPI. No product behavior change.
 
+## v0.16 — v0.15.0 Release
+
+Tagged **v0.15.0** with a GitHub Release. No PyPI. No product behavior change.
+
 ## v0.15 — `init` starter scaffold
 
 Version **0.15.0**. Scaffold a starter project in the current directory (or `--dir`):
