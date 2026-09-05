@@ -69,7 +69,7 @@ def _connect_raw(dsn: str, **kwargs: Any) -> Any:
     except ImportError as exc:
         raise ImportError(
             "MySQL support requires pymysql. "
-            "Install with: pip install 'write-gate[mysql]'"
+            "Install with: pip install 'sql-write-gate[mysql]'"
         ) from exc
 
 
