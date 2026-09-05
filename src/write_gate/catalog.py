@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from write_gate.paths import CATALOG_PATH
+from write_gate.paths import default_catalog_path
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,7 @@ def _table_spec(name: str, raw: dict[str, Any]) -> TableSpec:
 
 
 def load_catalog(path: Path | None = None) -> Catalog:
-    catalog_path = Path(path) if path else CATALOG_PATH
+    catalog_path = Path(path) if path else default_catalog_path()
     with catalog_path.open(encoding="utf-8") as fh:
         raw = json.load(fh)
     tables = {
