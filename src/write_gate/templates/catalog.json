@@ -1,0 +1,32 @@
+{
+  "as_of_date": "2026-09-02",
+  "freshness_days": 7,
+  "tables": {
+    "orders": {
+      "writable": true,
+      "stale": false,
+      "partition_column": "dt",
+      "columns": {
+        "order_id": "INTEGER",
+        "user_id": "INTEGER",
+        "amount": "DOUBLE",
+        "dt": "DATE",
+        "email": "VARCHAR",
+        "phone": "VARCHAR",
+        "status": "VARCHAR"
+      },
+      "allowed_write_columns": [
+        "order_id",
+        "user_id",
+        "amount",
+        "dt",
+        "status"
+      ],
+      "pii_columns": [
+        "email",
+        "phone"
+      ],
+      "restricted_columns": []
+    }
+  }
+}
