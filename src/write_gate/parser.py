@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import sqlglot
@@ -417,27 +417,172 @@ def update_assignments(stmt: exp.Update) -> dict[str, exp.Expression | None]:
 def partition_dates_from_where(
     where: exp.Expression | None, part: str | None
 ) -> list[date | None]:
+    """Collect partition date literals from WHERE (= / IN / inequalities / BETWEEN).
+
+    For past-open ranges (``dt < X``, ``dt <= X``) a sentinel ``date.min`` is
+    included so callers without a cutoff still fail closed. Prefer
+    ``expired_partition_touch`` when a cutoff is available.
+    """
     if where is None or not part:
         return []
     dates: list[date | None] = []
 
     def visit(node: exp.Expression) -> None:
-        if isinstance(node, exp.In) and ident(node.this) == part:
-            for item in node.expressions:
-                dates.append(parse_date(literal_value(item)))
-            return
-        if isinstance(node, exp.EQ):
-            left, right = node.this, node.expression
-            if ident(left) == part:
-                dates.append(parse_date(literal_value(right)))
-            elif ident(right) == part:
-                dates.append(parse_date(literal_value(left)))
+        hit = _constraint_dates(node, part)
+        if hit is not None:
+            dates.extend(hit)
             return
         for child in node.iter_expressions():
             visit(child)
 
     visit(where)
     return dates
+
+
+def _constraint_dates(node: exp.Expression, part: str) -> list[date | None] | None:
+    """If node is a partition constraint, return dates it implies; else None."""
+    if isinstance(node, exp.In) and ident(node.this) == part:
+        return [parse_date(literal_value(item)) for item in node.expressions]
+    if isinstance(node, exp.Between) and ident(node.this) == part:
+        low = parse_date(literal_value(node.args.get("low")))
+        high = parse_date(literal_value(node.args.get("high")))
+        out: list[date | None] = [low, high]
+        if low is None:
+            out.append(date.min)
+        return out
+    if isinstance(node, exp.EQ):
+        left, right = node.this, node.expression
+        if ident(left) == part:
+            return [parse_date(literal_value(right))]
+        if ident(right) == part:
+            return [parse_date(literal_value(left))]
+        return None
+    if isinstance(node, (exp.LT, exp.LTE, exp.GT, exp.GTE)):
+        return _inequality_dates(node, part)
+    return None
+
+
+def _inequality_dates(node: exp.Expression, part: str) -> list[date | None] | None:
+    left, right = node.this, node.expression
+    if ident(left) == part:
+        lit = parse_date(literal_value(right))
+        op = type(node)
+    elif ident(right) == part:
+        lit = parse_date(literal_value(left))
+        op = {exp.LT: exp.GT, exp.LTE: exp.GTE, exp.GT: exp.LT, exp.GTE: exp.LTE}[type(node)]
+    else:
+        return None
+    # Past-open always contributes sentinel; bound kept for messaging.
+    out: list[date | None] = []
+    if lit is not None:
+        out.append(lit)
+    if op in (exp.LT, exp.LTE):
+        out.append(date.min)
+    elif lit is None:
+        out.append(date.min)
+    return out or [None]
+
+
+def expired_partition_touch(
+    where: exp.Expression | None,
+    part: str | None,
+    cutoff: date,
+) -> date | None:
+    """Return one expired partition date if WHERE can match rows before cutoff.
+
+    Handles ``=`` / ``IN`` / ``BETWEEN`` / ``<`` ``<=`` ``>`` ``>=`` (and flipped
+    literals). Fail closed on unparseable past-open ranges.
+    """
+    if where is None or not part:
+        return None
+    hits: list[date] = []
+
+    def consider(d: date | None) -> None:
+        if d is not None and d < cutoff:
+            hits.append(d)
+
+    def visit(node: exp.Expression) -> None:
+        if isinstance(node, exp.In) and ident(node.this) == part:
+            for item in node.expressions:
+                consider(parse_date(literal_value(item)))
+            return
+        if isinstance(node, exp.Between) and ident(node.this) == part:
+            low = parse_date(literal_value(node.args.get("low")))
+            high = parse_date(literal_value(node.args.get("high")))
+            # [low, high] intersects (-inf, cutoff) iff low is missing or low < cutoff.
+            if low is None:
+                hits.append(date.min)
+            elif low < cutoff:
+                hits.append(low)
+            return
+        if isinstance(node, exp.EQ):
+            left, right = node.this, node.expression
+            if ident(left) == part:
+                consider(parse_date(literal_value(right)))
+            elif ident(right) == part:
+                consider(parse_date(literal_value(left)))
+            return
+        if isinstance(node, (exp.LT, exp.LTE, exp.GT, exp.GTE)):
+            left, right = node.this, node.expression
+            if ident(left) == part:
+                lit = parse_date(literal_value(right))
+                op = type(node)
+            elif ident(right) == part:
+                lit = parse_date(literal_value(left))
+                op = {
+                    exp.LT: exp.GT,
+                    exp.LTE: exp.GTE,
+                    exp.GT: exp.LT,
+                    exp.GTE: exp.LTE,
+                }[type(node)]
+            else:
+                for child in node.iter_expressions():
+                    visit(child)
+                return
+            if op in (exp.LT, exp.LTE):
+                # part < lit / part <= lit always opens to -inf → touches expired.
+                if lit is not None and lit <= cutoff:
+                    # all matched dates are < cutoff (for LT) or <= lit <= cutoff
+                    hits.append(date.min if lit >= cutoff else lit)
+                else:
+                    # lit > cutoff still includes dates < cutoff
+                    hits.append(date.min)
+                return
+            if op == exp.GT:
+                # part > lit → matched dates start at lit+1 day.
+                if lit is None:
+                    hits.append(date.min)
+                else:
+                    # touches expired if lit+1 day < cutoff i.e. lit < cutoff - 1 day
+                    # equivalently: if there exists d, lit < d < cutoff
+                    nxt = lit + timedelta(days=1)
+                    if nxt < cutoff:
+                        hits.append(nxt)
+                return
+            if op == exp.GTE:
+                # part >= lit touches expired iff lit < cutoff
+                if lit is None:
+                    hits.append(date.min)
+                elif lit < cutoff:
+                    hits.append(lit)
+                return
+            return
+        for child in node.iter_expressions():
+            visit(child)
+
+    visit(where)
+    return min(hits) if hits else None
+
+
+def partition_dates_from_assignments(
+    assignments: dict[str, exp.Expression | None] | None, part: str | None
+) -> list[date | None]:
+    """Partition dates written by UPDATE SET (e.g. SET dt = '2026-08-01')."""
+    if not part or not assignments:
+        return []
+    if part not in assignments:
+        return []
+    return [parse_date(literal_value(assignments[part]))]
 
 
 def partition_dates_from_insert(
@@ -447,11 +592,11 @@ def partition_dates_from_insert(
         return []
     dates: list[date | None] = []
     for row in rows:
-        assignments = dict(zip(cols, row))
-        if part not in assignments:
+        row_map = dict(zip(cols, row))
+        if part not in row_map:
             dates.append(None)
         else:
-            dates.append(parse_date(literal_value(assignments[part])))
+            dates.append(parse_date(literal_value(row_map[part])))
     return dates
 
 
