@@ -111,7 +111,9 @@ class WriteGate:
         except Exception:
             return None
 
-    def _evaluate(self, sql: str, *, use_conn: bool) -> Decision:
+    def _evaluate(
+        self, sql: str, *, use_conn: bool, human_approved: bool = False
+    ) -> Decision:
         if use_conn:
             conn = self._conn_for_execute()
         else:
@@ -122,14 +124,24 @@ class WriteGate:
             policy=self.policy,
             conn=conn,
             dialect=self.backend,
+            human_approved=human_approved,
         )
 
-    def _audit(self, decision: Decision) -> None:
+    def _audit(
+        self,
+        decision: Decision,
+        *,
+        executed: bool | None = None,
+        execution_outcome: str | None = None,
+    ) -> None:
         append_audit(
             decision,
             agent=self.agent,
             environment=self.policy.environment,
             path=self.audit_path,
+            database=self.database,
+            executed=executed,
+            execution_outcome=execution_outcome,
         )
 
     def check(self, sql: str) -> Decision:
@@ -158,32 +170,78 @@ class WriteGate:
             )
             decision.approval_id = rec.id
             rec.decision = decision.to_dict()
-            self._audit(decision)
+            self._audit(
+                decision,
+                executed=False,
+                execution_outcome="queued",
+            )
             return decision, None
-        self._audit(decision)
         if decision.action != ACTION_ALLOW:
+            self._audit(
+                decision,
+                executed=False,
+                execution_outcome="blocked",
+            )
             return decision, None
         result = self._execute_user_sql(sql)
+        self._audit(
+            decision,
+            executed=True,
+            execution_outcome="executed",
+        )
         return decision, result
 
     def approve(self, approval_id: str) -> tuple[Decision, Any]:
-        """Load a pending id, re-run guards, execute if ALLOW after clearing env approval."""
+        """Load id, re-run guards with human approval, execute if ALLOW.
+
+        Clears environment 'approval' rules and PII SELECT approval for this
+        queued statement. Destructive / PII-write / freshness / blast BLOCK
+        still apply. Idempotent: already-approved ids do not double-execute.
+        """
         rec = get_approval(approval_id, path=self.approvals_path)
-        if rec is None or rec.status != "pending":
-            raise ApprovalError(f"approval not found or not pending: {approval_id}")
+        if rec is None:
+            raise ApprovalError(f"approval not found: {approval_id}")
+        if rec.status == "approved":
+            # Idempotent: do not execute again.
+            decision = Decision(
+                action=ACTION_ALLOW,
+                risk="low",
+                rule_id="ok",
+                reason=f"approval {rec.id} already approved (idempotent; not re-executed)",
+                sql=rec.sql,
+                approval_id=rec.id,
+                operation=(rec.decision or {}).get("operation"),
+                table=(rec.decision or {}).get("table"),
+            )
+            self._audit(
+                decision,
+                executed=False,
+                execution_outcome="already_approved",
+            )
+            return decision, None
+        if rec.status != "pending":
+            raise ApprovalError(f"approval not pending: {approval_id}")
         saved_policy = self.policy
         try:
             self.policy = saved_policy.with_env_approvals_cleared()
-            decision = self._evaluate(rec.sql, use_conn=True)
+            decision = self._evaluate(rec.sql, use_conn=True, human_approved=True)
         finally:
             self.policy = saved_policy
         decision.approval_id = rec.id
         if decision.action != ACTION_ALLOW:
-            self._audit(decision)
+            self._audit(
+                decision,
+                executed=False,
+                execution_outcome="approve_blocked",
+            )
             return decision, None
         result = self._execute_user_sql(rec.sql)
         mark_approved(rec.id, path=self.approvals_path)
-        self._audit(decision)
+        self._audit(
+            decision,
+            executed=True,
+            execution_outcome="executed",
+        )
         return decision, result
 
     def reject(self, approval_id: str) -> None:
