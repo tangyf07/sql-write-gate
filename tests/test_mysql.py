@@ -249,4 +249,4 @@ def test_missing_driver_install_hint(monkeypatch):
         from write_gate.adapters import mysql as mysql_mod
 
         mysql_mod._connect_raw(MYSQL_URL)
-    assert "write-gate[mysql]" in str(ei.value)
+    assert "sql-write-gate[mysql]" in str(ei.value)
