@@ -63,12 +63,25 @@ def check_schema(ctx) -> GuardResult:
 
 
 def _check_insert(parsed, spec: TableSpec) -> GuardResult:
-    cols = list(parsed.write_columns)
-    if not cols:
-        cols = list(spec.columns.keys())
-        parsed.write_columns = cols
-        parsed.columns = cols
-    if any(c == "" for c in cols):
+    # insert_columns: INSERT target list (VALUES arity only).
+    # write_columns: insert + ON CONFLICT DO UPDATE SET (allowed/unknown/PII).
+    insert_cols = list(getattr(parsed, "insert_columns", None) or [])
+    if not insert_cols:
+        insert_cols = list(parsed.columns) if parsed.columns else []
+    write_cols = list(parsed.write_columns) if parsed.write_columns else list(insert_cols)
+    if not insert_cols:
+        insert_cols = list(spec.columns.keys())
+        parsed.insert_columns = list(insert_cols)
+        parsed.columns = list(insert_cols)
+        extras = [c for c in write_cols if c not in insert_cols]
+        write_cols = list(dict.fromkeys([*insert_cols, *extras]))
+        parsed.write_columns = write_cols
+    else:
+        parsed.insert_columns = list(insert_cols)
+        if not write_cols:
+            write_cols = list(insert_cols)
+            parsed.write_columns = write_cols
+    if any(c == "" for c in insert_cols):
         return GuardResult.block(NAME, RULE_SCHEMA, "INSERT 列名无法解析", risk="medium")
 
     rows = parsed.insert_rows
@@ -81,15 +94,17 @@ def _check_insert(parsed, spec: TableSpec) -> GuardResult:
         )
 
     for row in rows:
-        if len(row) != len(cols):
+        if len(row) != len(insert_cols):
             return GuardResult.block(
                 NAME,
                 RULE_SCHEMA,
-                f"INSERT 列数 {len(cols)} 与值个数 {len(row)} 不一致",
+                f"INSERT 列数 {len(insert_cols)} 与值个数 {len(row)} 不一致",
                 risk="medium",
             )
-        assignments = dict(zip(cols, row))
-        failed = _columns_and_types(spec, cols, assignments)
+        assignments = dict(zip(insert_cols, row))
+        # Merge ON CONFLICT SET expressions for type checks on upsert cols.
+        merged = {**assignments, **(parsed.assignments or {})}
+        failed = _columns_and_types(spec, write_cols, merged)
         if failed:
             return failed
     return GuardResult.pass_(NAME)
