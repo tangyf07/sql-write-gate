@@ -16,7 +16,7 @@ $(VENV)/pyvenv.cfg:
 seed: install
 	$(PY) scripts/gen_seed.py
 
-test: install
+test: seed
 	$(BIN)/pytest -q
 
 demo: seed
