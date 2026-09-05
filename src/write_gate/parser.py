@@ -10,7 +10,7 @@ from typing import Any
 import sqlglot
 from sqlglot import exp
 
-from write_gate.decision import RULE_SCHEMA
+from write_gate.decision import RULE_SCHEMA, RULE_UNSUPPORTED
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -45,7 +45,9 @@ class ParsedSQL:
     statement: exp.Expression | None = None
     operation: str = "unknown"  # select | insert | update | delete | ddl | unknown
     table: str | None = None
+    table_alias: str | None = None
     columns: list[str] = field(default_factory=list)
+    insert_columns: list[str] = field(default_factory=list)
     write_columns: list[str] = field(default_factory=list)
     select_columns: list[str] = field(default_factory=list)
     star: bool = False
@@ -152,13 +154,58 @@ def _ddl_types() -> tuple[type, ...]:
     return tuple(getattr(exp, n) for n in DDL_TYPE_NAMES if hasattr(exp, n))
 
 
+def _has_select_into(stmt: exp.Expression) -> bool:
+    """PostgreSQL SELECT ... INTO is a write (creates a table), not read-only."""
+    if isinstance(stmt, exp.Select) and stmt.args.get("into") is not None:
+        return True
+    into_cls = getattr(exp, "Into", None)
+    if into_cls is None:
+        return False
+    return any(isinstance(n, into_cls) for n in stmt.find_all(into_cls))
+
+
+def _nested_dml_nodes(stmt: exp.Expression) -> list[exp.Expression]:
+    """DML nested under a non-DML root (e.g. data-modifying CTE)."""
+    write_types = _write_types()
+    if not write_types:
+        return []
+    if isinstance(stmt, write_types):
+        return []
+    return [n for n in stmt.find_all(*write_types) if n is not stmt]
+
+
 def is_read_only(stmt: exp.Expression) -> bool:
     write_types = _write_types()
     if write_types and isinstance(stmt, write_types):
         return False
+    if _has_select_into(stmt):
+        return False
+    if _nested_dml_nodes(stmt):
+        return False
     if isinstance(stmt, (exp.Select, exp.Union, exp.Except, exp.Intersect)):
         return True
     return isinstance(stmt, exp.Query) and not isinstance(stmt, write_types)
+
+
+def unsupported_read_reason(stmt: exp.Expression) -> tuple[str, str] | None:
+    """Explicit reject reasons for structures that must never silent-ALLOW as read-only."""
+    if _has_select_into(stmt):
+        return (
+            RULE_UNSUPPORTED,
+            "SELECT INTO is not supported as read-only; rejected (unsupported_sql)",
+        )
+    nested = _nested_dml_nodes(stmt)
+    if nested:
+        kinds = sorted({type(n).__name__ for n in nested})
+        return (
+            RULE_UNSUPPORTED,
+            (
+                "Data-modifying CTE / nested DML "
+                f"({', '.join(kinds)}) is not supported as read-only; "
+                "rejected (unsupported_sql)"
+            ),
+        )
+    return None
 
 
 def classify_operation(stmt: exp.Expression) -> str:
@@ -172,6 +219,19 @@ def classify_operation(stmt: exp.Expression) -> str:
     if ddl_types and isinstance(stmt, ddl_types):
         return "ddl"
     if isinstance(stmt, exp.Merge):
+        return "ddl"
+    if _has_select_into(stmt):
+        return "ddl"
+    nested = _nested_dml_nodes(stmt)
+    if nested:
+        # Prefer the nested DML kind for policy; schema/unsupported still reject.
+        inner = nested[0]
+        if isinstance(inner, exp.Insert):
+            return "insert"
+        if isinstance(inner, exp.Update):
+            return "update"
+        if isinstance(inner, exp.Delete):
+            return "delete"
         return "ddl"
     if is_read_only(stmt):
         return "select"
@@ -221,13 +281,30 @@ def where_sql(where: exp.Expression | None, dialect: str = "duckdb") -> str | No
     return where.sql(dialect=dialect)
 
 
-def _select_columns(stmt: exp.Expression) -> tuple[list[str], bool]:
+def _column_names_in_expression(node: exp.Expression) -> list[str]:
+    """Column identifiers referenced inside a projection / expression tree."""
+    cols: list[str] = []
+    for col in node.find_all(exp.Column):
+        name = ident(col)
+        if name and name != "*":
+            cols.append(name)
+    return cols
+
+
+def _projection_columns(expressions: list[exp.Expression] | None) -> tuple[list[str], bool]:
     cols: list[str] = []
     star = False
-    expressions = stmt.expressions or []
-    for item in expressions:
+    for item in expressions or []:
         if isinstance(item, exp.Star):
             star = True
+            continue
+        if isinstance(item, exp.Column) and getattr(item, "is_star", False):
+            star = True
+            continue
+        # Prefer underlying column refs (covers concat(email, phone) AS contact).
+        nested = _column_names_in_expression(item)
+        if nested:
+            cols.extend(nested)
             continue
         if isinstance(item, exp.Alias):
             name = ident(item.this) or ident(item)
@@ -235,9 +312,76 @@ def _select_columns(stmt: exp.Expression) -> tuple[list[str], bool]:
             name = ident(item)
         if name and name != "*":
             cols.append(name)
-        elif isinstance(item, exp.Star) or (name == "*"):
+        elif name == "*":
             star = True
     return cols, star
+
+
+def _select_columns(stmt: exp.Expression) -> tuple[list[str], bool]:
+    """Collect projected / referenced columns for PII checks (CTE, UNION, exprs)."""
+    cols: list[str] = []
+    star = False
+
+    # UNION / EXCEPT / INTERSECT: walk both sides.
+    if isinstance(stmt, (exp.Union, exp.Except, exp.Intersect)):
+        for side in (stmt.this, stmt.expression):
+            if side is None:
+                continue
+            c, s = _select_columns(side)
+            cols.extend(c)
+            star = star or s
+        return list(dict.fromkeys(cols)), star
+
+    # WITH ... AS (...): include CTE bodies so SELECT * FROM cte still sees PII.
+    for cte in stmt.find_all(exp.CTE):
+        body = cte.this
+        if body is None:
+            continue
+        c, s = _select_columns(body)
+        cols.extend(c)
+        star = star or s
+
+    if isinstance(stmt, exp.Select):
+        c, s = _projection_columns(stmt.expressions)
+        cols.extend(c)
+        star = star or s
+    elif hasattr(stmt, "expressions"):
+        c, s = _projection_columns(stmt.expressions)
+        cols.extend(c)
+        star = star or s
+
+    return list(dict.fromkeys(cols)), star
+
+
+def table_alias(stmt: exp.Expression) -> str | None:
+    """Alias on the target table of UPDATE/DELETE (for COUNT estimates)."""
+    target = stmt.this if isinstance(stmt, (exp.Update, exp.Delete)) else None
+    if isinstance(target, exp.Table):
+        alias = target.args.get("alias")
+        if isinstance(alias, exp.TableAlias):
+            return ident(alias.this) or ident(alias)
+        if alias is not None:
+            return ident(alias)
+        return target.alias if getattr(target, "alias", None) else None
+    return None
+
+
+def conflict_update_columns(stmt: exp.Insert) -> list[str]:
+    """Columns written by ON CONFLICT ... DO UPDATE SET (UPSERT)."""
+    conflict = stmt.args.get("conflict")
+    if conflict is None:
+        return []
+    cols: list[str] = []
+    for item in conflict.expressions or []:
+        if isinstance(item, exp.EQ):
+            name = ident(item.this)
+            if name:
+                cols.append(name)
+        else:
+            name = ident(item)
+            if name:
+                cols.append(name)
+    return cols
 
 
 def insert_columns(stmt: exp.Insert, fallback: list[str] | None = None) -> list[str]:
@@ -343,17 +487,41 @@ def parse(sql: str, dialect: str = "duckdb") -> ParsedSQL:
 
     stmt = statements[0]
     parsed.statement = stmt
+
+    unsupported = unsupported_read_reason(stmt)
+    if unsupported:
+        rule, reason = unsupported
+        parsed.error = reason
+        parsed.error_rule = rule
+        parsed.operation = classify_operation(stmt)
+        parsed.table = extract_table(stmt)
+        return parsed
+
     parsed.operation = classify_operation(stmt)
     parsed.table = extract_table(stmt)
+    parsed.table_alias = table_alias(stmt)
     parsed.where = extract_where(stmt)
     parsed.has_where = parsed.where is not None
 
     if isinstance(stmt, exp.Insert):
         cols = insert_columns(stmt)
-        parsed.write_columns = cols
+        conflict_cols = conflict_update_columns(stmt)
+        # UPSERT: insert_columns = INSERT target list (VALUES arity);
+        # write_columns = insert + ON CONFLICT DO UPDATE SET (PII/schema writes).
+        write_cols = list(dict.fromkeys([*cols, *conflict_cols]))
+        parsed.insert_columns = list(cols)
+        parsed.write_columns = write_cols
         parsed.columns = list(cols)
         parsed.insert_rows = insert_rows(stmt)
         parsed.assignments = {}
+        if conflict_cols:
+            # Keep SET expressions for type checks when present.
+            conflict = stmt.args.get("conflict")
+            for item in (conflict.expressions or [] if conflict is not None else []):
+                if isinstance(item, exp.EQ):
+                    name = ident(item.this)
+                    if name:
+                        parsed.assignments[name] = item.expression
     elif isinstance(stmt, exp.Update):
         assignments = update_assignments(stmt)
         parsed.assignments = assignments
