@@ -2,6 +2,19 @@
 
 All notable changes to **sql-write-gate** are documented here.
 
+## [0.13.0] — 2026-09-05
+
+### Added
+
+- SQLite adapter for `sqlite:///` and `sqlite+aiosqlite://` (file-path form; sqlglot dialect `sqlite`)
+- Uses stdlib `sqlite3` (no new required dependency)
+- AST guards (e.g. `DELETE` without `WHERE`) still BLOCK without a live SQLite DB / tables
+
+### Notes
+
+- DuckDB / Postgres / MySQL / hook / MCP / CI unchanged
+- No Web UI. No PyPI publish.
+
 ## [0.11.0] — 2026-09-05
 
 ### Added
