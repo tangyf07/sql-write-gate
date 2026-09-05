@@ -7,6 +7,7 @@ from typing import Any
 
 from write_gate.adapters.base import (
     BACKEND_DUCKDB,
+    BACKEND_MYSQL,
     BACKEND_POSTGRES,
     resolve_target,
 )
@@ -28,7 +29,7 @@ __all__ = ["WriteGate", "Evidence", "Decision"]
 
 
 class WriteGate:
-    """Deterministic pre-write gate wrapping DuckDB or PostgreSQL."""
+    """Deterministic pre-write gate wrapping DuckDB, PostgreSQL, or MySQL."""
 
     def __init__(
         self,
@@ -73,6 +74,10 @@ class WriteGate:
             from write_gate.adapters.postgres import connect as pg_connect
 
             return pg_connect(self.database)
+        if self.backend == BACKEND_MYSQL:
+            from write_gate.adapters.mysql import connect as mysql_connect
+
+            return mysql_connect(self.database)
         from write_gate.adapters.duckdb import connect as duck_connect
 
         return duck_connect(self.db_path)
@@ -175,6 +180,8 @@ class WriteGate:
     def _execute_user_sql(self, sql: str):
         if self.backend == BACKEND_POSTGRES:
             from write_gate.adapters.postgres import execute_user_sql as exec_sql
+        elif self.backend == BACKEND_MYSQL:
+            from write_gate.adapters.mysql import execute_user_sql as exec_sql
         else:
             from write_gate.adapters.duckdb import execute_user_sql as exec_sql
         return exec_sql(self.conn, sql)
