@@ -2,6 +2,14 @@
 
 All notable changes to **sql-write-gate** are documented here.
 
+## [0.16.1] — 2026-09-05
+
+### Fixed
+
+- Installed (PyPI/wheel) defaults: prefer cwd `./policy.yaml` and `./catalog.json` from `sql-write-gate init`
+- `paths.py` only treats a directory as checkout root when it has `pyproject.toml` + `seed/` (no fake `site-packages/.../seed`)
+- Bare `sql-write-gate check "DELETE FROM orders"` after `init` no longer raises `FileNotFoundError`
+
 ## [0.16.0] — 2026-09-05
 
 ### Changed
