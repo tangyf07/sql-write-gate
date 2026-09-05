@@ -2,6 +2,22 @@
 
 All notable changes to **sql-write-gate** are documented here.
 
+## [0.17.0] — 2026-09-05
+
+### Security (P0)
+
+- CTE / UNION / expression PII: column discovery walks CTE bodies, UNION arms, and nested expressions (`concat(email, phone)`); SELECT of PII is REQUIRE_APPROVAL (not silent ALLOW)
+- Data-modifying CTE (e.g. `WITH d AS (DELETE ...) SELECT ...`) and PostgreSQL `SELECT ... INTO` are explicit REJECT (`unsupported_sql`), never read-only ALLOW
+- UPSERT: `ON CONFLICT DO UPDATE SET` columns counted as writes — PII/restricted BLOCK even when INSERT column list omits them
+- Parser: `ParsedSQL.insert_columns` (INSERT target / VALUES arity) kept separate from `write_columns` (insert + conflict SET); schema arity uses `insert_columns` only
+- Blast-radius: table aliases included in COUNT SQL (`UPDATE orders AS o ... WHERE o.order_id`); estimate failure with a live connection → BLOCK fail-closed (`blast_radius_unknown`)
+- Unsupported / ambiguous write-shaped SQL → explicit REJECT (`unsupported_sql`); DELETE without WHERE still BLOCK
+
+### Docs
+
+- README: version 0.17.0; 「非生产唯一边界」disclaimer; 未列语法拒绝 (unlisted syntax is rejected)
+- Tests: `tests/test_security_bypasses_v017.py`
+
 ## [0.16.1] — 2026-09-05
 
 ### Fixed
