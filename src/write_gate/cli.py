@@ -15,7 +15,7 @@ from write_gate.approvals import (
 )
 from write_gate.audit import format_audit_table, read_audit
 from write_gate.decision import ACTION_ALLOW, ACTION_APPROVAL, ACTION_BLOCK, Decision
-from write_gate.paths import APPROVALS_PATH, AUDIT_PATH
+from write_gate.paths import default_approvals_path, default_audit_path
 from write_gate.wrapper import WriteGate
 
 
@@ -51,7 +51,7 @@ def _safe(value: object) -> str:
 
 def _approvals_path(args: argparse.Namespace) -> Path:
     raw = getattr(args, "approvals", None)
-    return Path(raw) if raw else APPROVALS_PATH
+    return Path(raw) if raw else default_approvals_path()
 
 
 def _gate_from_args(args: argparse.Namespace) -> WriteGate:
@@ -358,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "audit":
-        path = Path(args.audit_path) if args.audit_path else AUDIT_PATH
+        path = Path(args.audit_path) if args.audit_path else default_audit_path()
         rows = read_audit(path, limit=args.limit)
         sys.stdout.write(format_audit_table(rows) + "\n")
         return 0
