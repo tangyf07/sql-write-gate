@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
+from write_gate.audit import redact_database_url
 from write_gate.decision import Decision
 from write_gate.paths import default_approvals_path, default_log_dir
 
@@ -17,6 +19,13 @@ STATUS_APPROVED = "approved"
 STATUS_REJECTED = "rejected"
 
 _ID_LEN = 12
+
+# Best-effort concurrency: flock around load+atomic replace. Concurrent writers
+# on the same host serialize; cross-host / NFS locking is not guaranteed.
+_LOCK_NOTE = (
+    "approvals.jsonl uses flock + atomic replace for best-effort single-host "
+    "concurrency; not a distributed lock"
+)
 
 
 class ApprovalError(Exception):
@@ -84,6 +93,38 @@ def _path(path: Path | str | None = None) -> Path:
     return Path(path) if path else default_approvals_path()
 
 
+def _lock_path(path: Path) -> Path:
+    return path.with_suffix(path.suffix + ".lock")
+
+
+@contextmanager
+def _file_lock(path: Path) -> Iterator[None]:
+    """Exclusive flock for the critical section (best-effort concurrency)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = _lock_path(path)
+    fh = lock_file.open("a+", encoding="utf-8")
+    try:
+        try:
+            import fcntl
+
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            # Windows / unsupported — proceed without lock (documented best-effort).
+            pass
+        if not lock_file.read_text(encoding="utf-8").strip():
+            fh.write(_LOCK_NOTE + "\n")
+            fh.flush()
+        yield
+    finally:
+        try:
+            import fcntl
+
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        except (ImportError, OSError, ValueError):
+            pass
+        fh.close()
+
+
 def _load(path: Path) -> dict[str, dict[str, Any]]:
     if not path.exists():
         return {}
@@ -109,6 +150,7 @@ def _load(path: Path) -> dict[str, dict[str, Any]]:
 
 
 def _save(path: Path, records: dict[str, dict[str, Any]]) -> None:
+    """Atomic replace: write temp then rename over the live file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     body = "".join(json.dumps(rec, ensure_ascii=False) + "\n" for rec in records.values())
@@ -118,7 +160,8 @@ def _save(path: Path, records: dict[str, dict[str, Any]]) -> None:
 
 def get_approval(approval_id: str, path: Path | str | None = None) -> ApprovalRecord | None:
     dest = _path(path)
-    raw = _load(dest).get(str(approval_id))
+    with _file_lock(dest):
+        raw = _load(dest).get(str(approval_id))
     if not raw:
         return None
     return ApprovalRecord.from_dict(raw)
@@ -126,8 +169,10 @@ def get_approval(approval_id: str, path: Path | str | None = None) -> ApprovalRe
 
 def list_pending(path: Path | str | None = None) -> list[ApprovalRecord]:
     dest = _path(path)
+    with _file_lock(dest):
+        loaded = _load(dest)
     pending: list[ApprovalRecord] = []
-    for raw in _load(dest).values():
+    for raw in loaded.values():
         rec = ApprovalRecord.from_dict(raw)
         if rec.status == STATUS_PENDING and rec.id:
             pending.append(rec)
@@ -148,27 +193,28 @@ def enqueue_approval(
     agent: str | None = None,
 ) -> ApprovalRecord:
     dest = _path(path)
-    records = _load(dest)
-    approval_id = _new_id()
-    while approval_id in records:
+    with _file_lock(dest):
+        records = _load(dest)
         approval_id = _new_id()
-    rec = ApprovalRecord(
-        id=approval_id,
-        status=STATUS_PENDING,
-        sql=sql,
-        database=database,
-        db_path=db_path,
-        policy_path=str(policy_path) if policy_path else None,
-        catalog_path=str(catalog_path) if catalog_path else None,
-        created_at=_now(),
-        decision=decision.to_dict(),
-        backend=backend,
-        agent=agent,
-    )
-    # Snapshot includes approval_id once attached on the live decision.
-    rec.decision = {**rec.decision, "approval_id": approval_id}
-    records[approval_id] = rec.to_dict()
-    _save(dest, records)
+        while approval_id in records:
+            approval_id = _new_id()
+        rec = ApprovalRecord(
+            id=approval_id,
+            status=STATUS_PENDING,
+            sql=sql,
+            database=redact_database_url(database) if database else None,
+            db_path=db_path,
+            policy_path=str(policy_path) if policy_path else None,
+            catalog_path=str(catalog_path) if catalog_path else None,
+            created_at=_now(),
+            decision=decision.to_dict(),
+            backend=backend,
+            agent=agent,
+        )
+        # Snapshot includes approval_id once attached on the live decision.
+        rec.decision = {**rec.decision, "approval_id": approval_id}
+        records[approval_id] = rec.to_dict()
+        _save(dest, records)
     return rec
 
 
@@ -176,25 +222,32 @@ def set_status(
     approval_id: str,
     status: str,
     path: Path | str | None = None,
+    *,
+    allow_idempotent_approved: bool = False,
 ) -> ApprovalRecord:
     if status not in {STATUS_PENDING, STATUS_APPROVED, STATUS_REJECTED}:
         raise ApprovalError(f"invalid approval status: {status}")
     dest = _path(path)
-    records = _load(dest)
-    raw = records.get(str(approval_id))
-    if not raw:
-        raise ApprovalError(f"approval not found: {approval_id}")
-    rec = ApprovalRecord.from_dict(raw)
-    if rec.status != STATUS_PENDING:
-        raise ApprovalError(f"approval not pending: {approval_id}")
-    rec.status = status
-    records[rec.id] = rec.to_dict()
-    _save(dest, records)
+    with _file_lock(dest):
+        records = _load(dest)
+        raw = records.get(str(approval_id))
+        if not raw:
+            raise ApprovalError(f"approval not found: {approval_id}")
+        rec = ApprovalRecord.from_dict(raw)
+        if rec.status == status and status == STATUS_APPROVED and allow_idempotent_approved:
+            return rec
+        if rec.status != STATUS_PENDING:
+            raise ApprovalError(f"approval not pending: {approval_id}")
+        rec.status = status
+        records[rec.id] = rec.to_dict()
+        _save(dest, records)
     return rec
 
 
 def mark_approved(approval_id: str, path: Path | str | None = None) -> ApprovalRecord:
-    return set_status(approval_id, STATUS_APPROVED, path=path)
+    return set_status(
+        approval_id, STATUS_APPROVED, path=path, allow_idempotent_approved=True
+    )
 
 
 def mark_rejected(approval_id: str, path: Path | str | None = None) -> ApprovalRecord:
