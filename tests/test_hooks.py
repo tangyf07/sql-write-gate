@@ -203,3 +203,54 @@ def test_run_hook_empty_is_quiet():
     rc = run_hook(stdin_text="", err=buf)
     assert rc == 0
     assert buf.getvalue() == ""
+
+
+def test_bash_c_nested_psql_delete_blocked(capsys):
+    rc = main(["hook", "--command", 'bash -c "psql -c DELETE FROM orders"'])
+    out = _combined(capsys)
+    assert rc == 2
+    assert "BLOCKED" in out
+    assert "delete_without_where" in out
+
+
+def test_semicolon_glued_psql_delete_blocked(capsys):
+    rc = main(["hook", "--command", "echo hi;psql -c DELETE FROM orders"])
+    out = _combined(capsys)
+    assert rc == 2
+    assert "delete_without_where" in out
+
+
+def test_inspect_bash_unwraps_bash_c_and_semicolon_glue():
+    segs = inspect_bash('bash -c "psql -c DELETE FROM orders"')
+    assert any(s.cli == "psql" and "DELETE FROM orders" in s.sqls for s in segs)
+    segs2 = inspect_bash("ls;mysql -e DROP TABLE orders")
+    assert any(s.cli == "mysql" for s in segs2)
+
+
+def test_bash_c_nested_delete_blocked(capsys):
+    rc = main(["hook", "--command", 'bash -c "psql -c DELETE FROM orders"'])
+    out = _combined(capsys)
+    assert rc == 2
+    assert "BLOCKED" in out
+    assert "delete_without_where" in out
+
+
+def test_sh_c_nested_mysql_delete_blocked(capsys):
+    rc = main(["hook", "--command", "sh -c 'mysql -e DELETE FROM orders'"])
+    out = _combined(capsys)
+    assert rc == 2
+    assert "delete_without_where" in out
+
+
+def test_semicolon_glue_without_spaces_blocks(capsys):
+    rc = main(["hook", "--command", "echo hi;psql -c DELETE FROM orders"])
+    out = _combined(capsys)
+    assert rc == 2
+    assert "delete_without_where" in out
+
+
+def test_inspect_bash_unwraps_nested_shell_and_glue():
+    segs = inspect_bash('bash -c "psql -c DELETE FROM orders"')
+    assert any(s.cli == "psql" and "DELETE FROM orders" in s.sqls for s in segs)
+    segs2 = inspect_bash("ls;mysql -e DROP TABLE orders")
+    assert any(s.cli == "mysql" for s in segs2)
