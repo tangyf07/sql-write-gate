@@ -296,7 +296,10 @@ def _cmd_proxy(args: argparse.Namespace) -> int:
 def _cmd_approve(args: argparse.Namespace) -> int:
     path = _approvals_path(args)
     rec = get_approval(args.approval_id, path=path)
-    if rec is None or rec.status != "pending":
+    if rec is None:
+        sys.stderr.write(f"approval not found or not pending: {args.approval_id}\n")
+        return 1
+    if rec.status not in {"pending", "approved"}:
         sys.stderr.write(f"approval not found or not pending: {args.approval_id}\n")
         return 1
     with _gate_from_record(rec, approvals_path=path, agent="approve") as gate:
