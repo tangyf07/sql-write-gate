@@ -2,6 +2,13 @@
 
 All notable changes to **sql-write-gate** are documented here.
 
+## [0.14.0] — 2026-09-05
+
+### Changed
+
+- README top badges: CI, Release, Python 3.11+, MIT License
+- GitHub Release for tag `v0.13.0` (docs/release polish; product behavior unchanged from 0.13.0)
+
 ## [0.13.0] — 2026-09-05
 
 ### Added
