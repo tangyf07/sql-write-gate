@@ -206,7 +206,7 @@ def test_approve_missing_or_not_pending_exit_1(tmp_path, capsys):
     rc = main(["approve", "deadbeefdead", "--approvals", str(approvals)])
     err = capsys.readouterr().err
     assert rc == 1
-    assert "not found or not pending" in err
+    assert "not found" in err
 
 
 def test_pending_lists_id(tmp_path, capsys):
@@ -221,7 +221,8 @@ def test_pending_lists_id(tmp_path, capsys):
     assert "pending" in out
 
 
-def test_approve_does_not_clear_pii_or_destructive(tmp_path, capsys):
+def test_approve_clears_pii_select_and_executes(tmp_path, capsys):
+    """v0.18: after PII SELECT is queued, approve clears PII approval and executes."""
     db_path = _seed_warehouse(tmp_path)
     approvals = tmp_path / "approvals.jsonl"
     with _gate(tmp_path, db_path) as gate:
@@ -233,11 +234,23 @@ def test_approve_does_not_clear_pii_or_destructive(tmp_path, capsys):
     rc = main(["approve", aid, "--approvals", str(approvals)])
     out = capsys.readouterr()
     text = out.out + out.err
-    assert rc != 0
-    assert "ALLOWED" not in text.splitlines()[0] if text else True
+    assert rc == 0
+    assert "ALLOWED" in text
     rec = get_approval(aid, path=approvals)
     assert rec is not None
-    assert rec.status == "pending"
+    assert rec.status == "approved"
+
+
+def test_approve_does_not_clear_destructive_block(tmp_path):
+    """Destructive BLOCK is never queued; approve path is irrelevant."""
+    db_path = _seed_warehouse(tmp_path)
+    approvals = tmp_path / "approvals.jsonl"
+    with _gate(tmp_path, db_path) as gate:
+        decision, result = gate.execute("DELETE FROM orders")
+    assert decision.action == "BLOCK"
+    assert decision.rule_id == "delete_without_where"
+    assert result is None
+    assert list_pending(path=approvals) == []
 
 
 def test_cli_proxy_json_includes_approval_id(tmp_path, capsys):
