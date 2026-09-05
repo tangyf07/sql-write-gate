@@ -27,7 +27,7 @@ def check_pii(ctx) -> GuardResult:
         return _check_write(parsed, ctx.catalog)
 
     if parsed.operation == "select":
-        return _check_select(parsed, ctx.catalog)
+        return _check_select(parsed, ctx.catalog, ctx=ctx)
 
     return GuardResult.pass_(NAME)
 
@@ -68,7 +68,7 @@ def _check_write(parsed, catalog) -> GuardResult:
     return GuardResult.pass_(NAME)
 
 
-def _check_select(parsed, catalog) -> GuardResult:
+def _check_select(parsed, catalog, ctx=None) -> GuardResult:
     selected, table_hint = _selected_columns(parsed, catalog)
     specs = _specs_for_select(parsed, catalog, table_hint)
     if not specs:
@@ -109,6 +109,13 @@ def _check_select(parsed, catalog) -> GuardResult:
                 owner = spec.name
                 pii_cols = sorted(spec.pii_columns)
                 break
+        # After `sql-write-gate approve <id>`, clear PII SELECT approval for
+        # that queued statement (env approval clear alone is not enough).
+        if getattr(ctx, "human_approved", False):
+            return GuardResult.pass_(
+                NAME,
+                evidence={"columns": pii_hit, "table": owner, "pii_approved": True},
+            )
         return GuardResult.approval(
             NAME,
             RULE_PII,
