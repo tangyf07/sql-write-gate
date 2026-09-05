@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Mapping
 
-from write_gate.paths import DB_PATH
+from write_gate.paths import default_db_path
 
 BACKEND_DUCKDB = "duckdb"
 BACKEND_POSTGRES = "postgres"
@@ -98,4 +98,4 @@ def resolve_target(
     env_url = env.get("DATABASE_URL")
     if env_url:
         return detect_backend(env_url), env_url
-    return BACKEND_DUCKDB, str(DB_PATH)
+    return BACKEND_DUCKDB, str(default_db_path())
