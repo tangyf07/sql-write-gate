@@ -9,7 +9,7 @@ from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 from write_gate.decision import ACTION_APPROVAL, Decision
-from write_gate.paths import AUDIT_PATH, LOG_DIR
+from write_gate.paths import default_audit_path, default_log_dir
 
 # Glanceable table times: UTC ISO on disk, Asia/Shanghai in `sql-write-gate audit`.
 AUDIT_DISPLAY_TZ = ZoneInfo("Asia/Shanghai")
@@ -38,14 +38,14 @@ def append_audit(
         "decision": decision.action,
         "rule_id": decision.rule_id,
     }
-    dest = Path(path) if path else AUDIT_PATH
+    dest = Path(path) if path else default_audit_path()
     dest.parent.mkdir(parents=True, exist_ok=True)
     with dest.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def read_audit(path: Path | None = None, limit: int = 20) -> list[dict[str, Any]]:
-    dest = Path(path) if path else AUDIT_PATH
+    dest = Path(path) if path else default_audit_path()
     if not dest.exists():
         return []
     lines = dest.read_text(encoding="utf-8").splitlines()
@@ -114,7 +114,8 @@ def format_audit_table(rows: Iterable[dict[str, Any]]) -> str:
 
 
 def ensure_log_dir() -> None:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    gitkeep = LOG_DIR / ".gitkeep"
+    log_dir = default_log_dir()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    gitkeep = log_dir / ".gitkeep"
     if not gitkeep.exists():
         gitkeep.write_text("", encoding="utf-8")
