@@ -24,7 +24,13 @@ from write_gate.catalog import Catalog, load_catalog
 from write_gate.config import Policy, load_policy
 from write_gate.decision import ACTION_ALLOW, ACTION_APPROVAL, Decision, Evidence
 from write_gate.engine import evaluate
-from write_gate.paths import APPROVALS_PATH, AUDIT_PATH, CATALOG_PATH, DB_PATH, POLICY_PATH
+from write_gate.paths import (
+    default_approvals_path,
+    default_audit_path,
+    default_catalog_path,
+    default_db_path,
+    default_policy_path,
+)
 
 __all__ = ["WriteGate", "Evidence", "Decision"]
 
@@ -53,13 +59,15 @@ class WriteGate:
         )
         self.backend = backend
         self.database = target
-        self.db_path = Path(target) if backend == BACKEND_DUCKDB else DB_PATH
-        self.catalog_path = Path(catalog_path) if catalog_path else CATALOG_PATH
+        self.db_path = Path(target) if backend == BACKEND_DUCKDB else default_db_path()
+        self.catalog_path = Path(catalog_path) if catalog_path else default_catalog_path()
         self.catalog = catalog or load_catalog(self.catalog_path)
-        self.policy_path = Path(policy_path) if policy_path else POLICY_PATH
+        self.policy_path = Path(policy_path) if policy_path else default_policy_path()
         self.policy = policy or load_policy(self.policy_path)
-        self.audit_path = Path(audit_path) if audit_path else AUDIT_PATH
-        self.approvals_path = Path(approvals_path) if approvals_path else APPROVALS_PATH
+        self.audit_path = Path(audit_path) if audit_path else default_audit_path()
+        self.approvals_path = (
+            Path(approvals_path) if approvals_path else default_approvals_path()
+        )
         self.agent = agent
         self._conn = conn
         self._owns_conn = conn is None
