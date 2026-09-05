@@ -2,6 +2,21 @@
 
 All notable changes to **sql-write-gate** are documented here.
 
+## [0.18.0] — 2026-09-05
+
+### Security / hardening
+
+- **Freshness ranges**: `LT` / `LTE` / `GT` / `GTE` (and `BETWEEN`) on partition `dt` fail closed when they can touch expired partitions; `UPDATE SET dt = <expired>` and `INSERT` of expired `dt` BLOCK
+- **PII SELECT approve**: after a PII `SELECT` is queued, `approve <id>` clears PII approval for that statement (plus env approval rules) and executes; destructive / PII-write BLOCK unchanged. Already-approved ids are idempotent (no re-exec)
+- **Hooks**: unwrap `bash -c` / `sh -c` (and `-lc`) nested payloads; unglue semicolon-joined commands without spaces (`ls;psql …`) so DB CLIs cannot bypass PreToolUse
+- **MySQL autocommit**: prefer callable `autocommit(True)` (PyMySQL); fall back to `setattr` for attribute-only connectors
+- **Approvals / audit**: `fcntl.flock` + atomic replace on the approvals JSONL (best-effort single-host); audit redacts passwords in database URLs; audit records append `approval_id`, `executed`, and `execution_outcome`
+
+### Docs / tests
+
+- README: version 0.18.0; backlog checklist updated for freshness ranges / nested hooks / approve PII / flock / MySQL autocommit
+- Tests: `tests/test_v018.py`
+
 ## [0.17.0] — 2026-09-05
 
 ### Security (P0)
