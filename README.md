@@ -17,8 +17,16 @@ Prevent Claude Code, Codex, Cursor and MCP agents from executing unsafe database
 Deterministic policy engine (sqlglot AST + catalog + policy.yaml). **No LLM. No API key.**
 
 ```bash
-pip install -e .
+pip install sql-write-gate
 sql-write-gate check "DELETE FROM users"
+```
+
+From a clone (editable / extras):
+
+```bash
+pip install -e ".[dev]"                 # or: make install
+pip install -e ".[mysql]"               # optional: pymysql
+pip install 'sql-write-gate[postgres]'  # from PyPI: extras use dist name
 ```
 
 ```
@@ -62,8 +70,8 @@ sql-write-gate audit             # TIME / SOURCE / OP / TABLE / VERDICT
 ## 30-second path
 
 ```bash
-cd sql-write-gate
-pip install -e .          # or: make install
+pip install sql-write-gate   # PyPI
+# from clone: cd sql-write-gate && pip install -e .   # or: make install
 sql-write-gate check "DELETE FROM orders"
 # BLOCKED / delete_without_where — no API key required
 
@@ -98,7 +106,7 @@ sql-write-gate check --database "$DATABASE_URL" "DELETE FROM orders"
 
 `postgres://` and `postgresql://` select Postgres; anything else is a DuckDB file path. `WriteGate(database=...)` / `database_url=` / env `DATABASE_URL` are equivalent.
 
-Blast-radius on Postgres uses `SELECT COUNT(*) ... WHERE <predicate>` (same `update_rows` / `delete_rows` limits as DuckDB). Optional driver: `pip install -e ".[postgres]"`. Default `pip install -e .` stays DuckDB-only.
+Blast-radius on Postgres uses `SELECT COUNT(*) ... WHERE <predicate>` (same `update_rows` / `delete_rows` limits as DuckDB). Optional driver: `pip install 'sql-write-gate[postgres]'` (from clone: `pip install -e ".[postgres]"`). Default `pip install -e .` stays DuckDB-only.
 
 The 30-second path above is unchanged.
 
@@ -161,12 +169,12 @@ DuckDB 30-second path (`sql-write-gate check "DELETE FROM orders"` / `make demo`
 Agents call sql-write-gate as MCP tools. Every `query_sql` / `write_sql` goes through `WriteGate.check` (never `execute`). **No LLM. No API key.** Default `pip install -e .` stays without the MCP SDK.
 
 ```bash
-pip install -e ".[mcp]"
+pip install 'sql-write-gate[mcp]'   # from clone: pip install -e ".[mcp]"
 sql-write-gate mcp
 # optional: sql-write-gate mcp --database "$DATABASE_URL"
 ```
 
-If the extra is missing, the CLI prints `pip install -e ".[mcp]"` and exits 1.
+If the extra is missing, the CLI prints `pip install -e ".[mcp]"` (editable hint) and exits 1.
 
 Wire it (Claude / Codex `mcpServers`); copy [examples/mcp/config.json](examples/mcp/config.json):
 
@@ -293,9 +301,22 @@ Tagged **v0.11.0** with [CHANGELOG.md](CHANGELOG.md) and a GitHub Release. No Py
 
 README badges (CI / Release / Python / License). Tagged **v0.13.0** with a GitHub Release. No PyPI. No product behavior change.
 
-## v0.16 — v0.15.0 Release
+## v0.16 — PyPI package name `sql-write-gate`
 
-Tagged **v0.15.0** with a GitHub Release. No PyPI. No product behavior change.
+Version **0.16.0**. Distribution name on PyPI is **`sql-write-gate`** (was `write-gate` in earlier pyproject drafts). Import package stays `write_gate`; CLI entry stays `sql-write-gate`.
+
+```bash
+pip install sql-write-gate
+pip install 'sql-write-gate[mysql]'      # optional extras
+pip install 'sql-write-gate[postgres]'
+pip install 'sql-write-gate[mcp]'
+```
+
+Trusted Publishing: push a `v*` tag to run [`.github/workflows/publish.yml`](.github/workflows/publish.yml) (OIDC → PyPI). No product behavior change vs 0.15.0.
+
+## Earlier — v0.15.0 GitHub Release
+
+Tagged **v0.15.0** with a GitHub Release. No PyPI at that tag. No product behavior change.
 
 ## v0.15 — `init` starter scaffold
 
@@ -336,7 +357,7 @@ Push and pull requests to `main` run [`.github/workflows/ci.yml`](.github/workfl
 Version **0.10.0**. `mysql://` and `mysql+pymysql://` select the MySQL adapter (sqlglot dialect `mysql`). Default install is still DuckDB-only; add the optional extra for a live driver:
 
 ```bash
-pip install -e ".[mysql]"   # pymysql>=1.1
+pip install 'sql-write-gate[mysql]'   # pymysql>=1.1 (from clone: pip install -e ".[mysql]")
 sql-write-gate check --database mysql://user:pass@localhost/db "DELETE FROM orders"
 # → BLOCKED  rule=delete_without_where   (no live MySQL required)
 ```
