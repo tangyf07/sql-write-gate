@@ -2,6 +2,19 @@
 
 All notable changes to **sql-write-gate** are documented here.
 
+## [0.16.0] — 2026-09-05
+
+### Changed
+
+- PyPI distribution name: `write-gate` → `sql-write-gate` (import package remains `write_gate`; CLI entry `sql-write-gate` unchanged)
+- Install / extras hints: `pip install sql-write-gate` and `sql-write-gate[mysql|postgres|mcp|dev]`
+- GitHub Actions Trusted Publishing workflow: `.github/workflows/publish.yml` (tag `v*` → build + OIDC publish)
+
+### Notes
+
+- No product behavior change vs 0.15.0
+- Do not tag until ready; parent pushes when registering PyPI Trusted Publisher
+
 ## [0.15.0] — 2026-09-05
 
 ### Added
