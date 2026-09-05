@@ -54,13 +54,32 @@ sql-write-gate approve <id>      # human approve then write
 sql-write-gate audit             # TIME / SOURCE / OP / TABLE / VERDICT
 ```
 
+
+> **非生产唯一边界** — Early gate prototype; **not** the sole production security boundary. Unsupported / ambiguous SQL → REJECT/BLOCK (fail closed), never silent ALLOW as read-only.
+
+### Support matrix (fail closed)
+
+| Structure | Verdict |
+|-----------|---------|
+| Plain `SELECT` PII column | REQUIRE_APPROVAL |
+| PII via CTE / UNION / expression | REQUIRE_APPROVAL |
+| UPSERT `ON CONFLICT DO UPDATE` PII | BLOCK |
+| PG data-modifying CTE / `SELECT INTO` | REJECT (`unsupported_sql`) |
+| Blast-radius estimate failure | BLOCK (`blast_radius_unknown`) |
+| Unsupported / ambiguous SQL | REJECT/BLOCK — never silent ALLOW |
+
+
 ## What it blocks
 
 - [x] `DROP TABLE` / `TRUNCATE` / `ALTER TABLE`
 - [x] `DELETE` / `UPDATE` without `WHERE`
 - [x] Blast-radius: estimated rows over `update_rows` / `delete_rows`
 - [x] Schema: unknown table/column, type mismatch
-- [x] PII writes blocked; `SELECT` of PII columns requires approval
+- [x] PII writes blocked; `SELECT` of PII columns requires approval (incl. CTE / UNION / expression wrappers)
+- [x] UPSERT `ON CONFLICT DO UPDATE` PII/restricted column writes blocked
+- [x] Data-modifying CTE / `SELECT INTO` → explicit REJECT (`unsupported_sql`), never silent read-only ALLOW
+- [x] Blast-radius alias-aware COUNT; estimate failure fail-closed
+- [x] Unlisted / unsupported syntax → REJECT (`unsupported_sql`)
 - [x] Environment policy: per-operation allow / block / approval
 - [x] Freshness: expired partitions (`dt` before cutoff)
 - [x] JSONL audit log (`.logs/audit.jsonl`); `sql-write-gate audit` prints TIME / SOURCE / OP / TABLE / VERDICT
@@ -301,6 +320,23 @@ Tagged **v0.11.0** with [CHANGELOG.md](CHANGELOG.md) and a GitHub Release. No Py
 
 README badges (CI / Release / Python / License). Tagged **v0.13.0** with a GitHub Release. No PyPI. No product behavior change.
 
+## v0.17 — P0 security bypasses
+
+Version **0.17.0**. Closes P0 bypasses around PII discovery and write-shaped SQL:
+
+- CTE / UNION / `concat(email, …)` SELECT of PII → `REQUIRE_APPROVAL` (not silent ALLOW)
+- Data-modifying CTE and PostgreSQL `SELECT … INTO` → `BLOCK` / `unsupported_sql`
+- UPSERT `ON CONFLICT DO UPDATE SET` columns treated as writes (PII BLOCK)
+- Blast-radius COUNT preserves table aliases; estimate errors fail closed
+- **未列语法拒绝**: syntax outside the supported surface is explicit REJECT (`unsupported_sql`), never silent read-only ALLOW
+- **非生产唯一边界**: sql-write-gate is a policy firewall in front of the agent write path — not the sole production security boundary (pair with DB grants, network controls, and human review)
+
+`DELETE` / `UPDATE` without `WHERE` still BLOCK. No LLM. No API key.
+
+## v0.17.0 — P0 security (fail closed)
+
+Version **0.17.0**. PII wrapper / UPSERT / PG DM-CTE+SELECT INTO / blast-radius fail-closed. 非生产唯一边界 — not the sole production boundary; unsupported SQL → reject.
+
 ## v0.16.1 — installed-path defaults
 
 After `pip install sql-write-gate` and `sql-write-gate init`, bare `sql-write-gate check "DELETE FROM orders"` uses `./policy.yaml` + `./catalog.json` (no `FileNotFoundError` on a fake `seed/catalog.json`).
@@ -425,9 +461,11 @@ Dates anchored `as_of=2026-09-02`; partitions older than 7 days (`dt < 2026-08-2
 
 `seed/catalog.json` (copied at `examples/catalog.json`): writable tables, allowed columns, `pii_columns`, optional `restricted_columns` (`id_card`, `card_number`).
 
-- Write to PII / restricted columns → **BLOCK**
-- `SELECT` of PII columns → **REQUIRE_APPROVAL** (not silent allow)
+- Write to PII / restricted columns → **BLOCK** (including UPSERT `ON CONFLICT DO UPDATE SET`)
+- `SELECT` of PII columns → **REQUIRE_APPROVAL** (not silent allow), including CTE / UNION / expression wrappers
 - `SELECT` of restricted columns → **BLOCK**
+- **未列语法拒绝**: unsupported or ambiguous SQL (e.g. data-modifying CTE, `SELECT INTO`) → **REJECT** (`unsupported_sql`), never silent ALLOW as read-only
+- **非生产唯一边界**: this gate is necessary but not sufficient alone for production — combine with least-privilege DB roles, network isolation, and human approval workflows
 
 ## Audit
 
