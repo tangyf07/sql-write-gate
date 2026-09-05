@@ -55,7 +55,7 @@ sql-write-gate audit             # TIME / SOURCE / OP / TABLE / VERDICT
 ```
 
 
-> **非生产唯一边界** — Early gate prototype; **not** the sole production security boundary. Unsupported / ambiguous SQL → REJECT/BLOCK (fail closed), never silent ALLOW as read-only.
+> **非生产唯一边界** — Early gate prototype; **not** the sole production security boundary. **未列语法拒绝** — unsupported / ambiguous SQL → REJECT/BLOCK (fail closed), never silent ALLOW as read-only.
 
 ### Support matrix (fail closed)
 
