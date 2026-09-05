@@ -59,14 +59,31 @@ def sqlglot_dialect(backend: str) -> str:
     return "duckdb"
 
 
-def count_sql(table: str, predicate: str | None, *, backend: str = BACKEND_DUCKDB) -> str:
+def quote_ident(name: str, *, backend: str = BACKEND_DUCKDB) -> str:
+    """Dialect-aware identifier quoting for COUNT targets."""
+    if backend == BACKEND_MYSQL:
+        safe = name.replace("`", "``")
+        return f"`{safe}`"
+    safe = name.replace('"', '""')
+    return f'"{safe}"'
+
+
+def count_sql(
+    table: str,
+    predicate: str | None,
+    *,
+    backend: str = BACKEND_DUCKDB,
+    alias: str | None = None,
+) -> str:
     """SELECT COUNT(*) of rows matching the write predicate.
 
-    Same COUNT form for DuckDB, Postgres, MySQL, and SQLite (EXPLAIN is optional elsewhere).
-    `backend` is accepted so callers can be explicit; quoting is ANSI identifiers.
+    Includes table alias when the UPDATE/DELETE used one so predicates like
+    ``o.order_id > 0`` still resolve. Quoting is dialect-aware (MySQL backticks).
     """
-    del backend  # COUNT SQL is shared; dialect only affects WHERE rendering.
-    sql = f'SELECT COUNT(*) FROM "{table}"'
+    quoted = quote_ident(table, backend=backend)
+    if alias:
+        quoted = f"{quoted} AS {quote_ident(alias, backend=backend)}"
+    sql = f"SELECT COUNT(*) FROM {quoted}"
     if predicate:
         sql = f"{sql} WHERE {predicate}"
     return sql
