@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import date
 
 from write_gate.decision import RULE_EXPIRED, RULE_SCHEMA, RISK_MEDIUM, GuardResult
-from write_gate.parser import partition_dates_from_insert, partition_dates_from_where
+from write_gate.parser import (
+    expired_partition_touch,
+    partition_dates_from_assignments,
+    partition_dates_from_insert,
+)
 
 NAME = "freshness"
 
@@ -49,7 +53,19 @@ def check_freshness(ctx) -> GuardResult:
             missing_message=f"INSERT 必须显式写出分区列 {part}",
         )
 
-    dates = partition_dates_from_where(parsed.where, part)
+    cutoff = ctx.catalog.cutoff_date
+    dates: list[date | None] = []
+
+    # Range-aware WHERE: block UPDATE/DELETE that touch expired partitions
+    # via < / <= / > / >= / BETWEEN (not only = / IN).
+    touched = expired_partition_touch(parsed.where, part, cutoff)
+    if touched is not None:
+        dates.append(touched)
+
+    # Writing a new expired partition date via UPDATE SET dt = ...
+    if parsed.operation == "update":
+        dates.extend(partition_dates_from_assignments(parsed.assignments, part))
+
     # UPDATE/DELETE: if WHERE names an expired partition, block.
     # If WHERE exists but does not mention the partition, let blast_radius handle scope.
     return _evaluate_dates(
@@ -84,18 +100,19 @@ def _evaluate_dates(
     expired = [d for d in present if d < cutoff]
     if expired:
         worst = min(expired)
+        shown = worst.isoformat() if worst.year > 1 else f"(range before {cutoff.isoformat()})"
         return GuardResult.block(
             NAME,
             RULE_EXPIRED,
             (
-                f"分区 {spec.partition_column}={worst.isoformat()} 早于新鲜度截止日期 "
+                f"分区 {spec.partition_column}={shown} 早于新鲜度截止日期 "
                 f"{cutoff.isoformat()}（as_of={catalog.as_of_date.isoformat()}, "
                 f"freshness_days={catalog.freshness_days}），拒绝写入"
             ),
             risk=RISK_MEDIUM,
             evidence={
                 "partition_column": spec.partition_column,
-                "partition_value": worst.isoformat(),
+                "partition_value": shown,
                 "cutoff": cutoff.isoformat(),
             },
         )
