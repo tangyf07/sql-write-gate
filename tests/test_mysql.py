@@ -179,7 +179,7 @@ def test_cli_check_database_mysql_blocks_delete(capsys):
 def test_mysql_count_sql_shared():
     sql = mysql_count_sql("orders", "dt = '2026-09-01'")
     assert "COUNT(*)" in sql
-    assert '"orders"' in sql
+    assert "`orders`" in sql  # MySQL dialect-aware quoting
     assert "WHERE dt = '2026-09-01'" in sql
     assert sql == count_sql("orders", "dt = '2026-09-01'", backend="mysql")
 
