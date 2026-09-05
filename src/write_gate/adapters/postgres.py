@@ -50,7 +50,7 @@ def _connect_raw(dsn: str, **kwargs: Any) -> Any:
     except ImportError as exc:
         raise ImportError(
             "PostgreSQL support requires psycopg. "
-            "Install with: pip install 'write-gate[postgres]'"
+            "Install with: pip install 'sql-write-gate[postgres]'"
         ) from exc
 
 
