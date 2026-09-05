@@ -104,7 +104,7 @@ def _add_shared(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--database",
         help=(
-            "DuckDB file path or postgres:// / postgresql:// URL "
+            "DuckDB file path or postgres:// / mysql:// / mysql+pymysql:// URL "
             "(default: DATABASE_URL, then local DuckDB)"
         ),
     )
