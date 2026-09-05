@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from write_gate.paths import POLICY_PATH
+from write_gate.paths import default_policy_path
 
 VALID_RULES = {"allow", "block", "approval"}
 VALID_OPS = ("select", "insert", "update", "delete", "ddl")
@@ -99,7 +99,7 @@ def policy_from_dict(raw: dict[str, Any] | None = None) -> Policy:
 
 
 def load_policy(path: Path | str | None = None) -> Policy:
-    policy_path = Path(path) if path else POLICY_PATH
+    policy_path = Path(path) if path else default_policy_path()
     if not policy_path.exists():
         return policy_from_dict(PRODUCTION_DEFAULTS)
     with policy_path.open(encoding="utf-8") as fh:
