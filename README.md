@@ -279,6 +279,25 @@ make demo
 
 `sql-write-gate check "DELETE FROM orders"` is still **BLOCK**. Hook still exit 2. Proxy DELETE still BLOCK.
 
+## v0.10 — MySQL adapter
+
+Version **0.10.0**. `mysql://` and `mysql+pymysql://` select the MySQL adapter (sqlglot dialect `mysql`). Default install is still DuckDB-only; add the optional extra for a live driver:
+
+```bash
+pip install -e ".[mysql]"   # pymysql>=1.1
+sql-write-gate check --database mysql://user:pass@localhost/db "DELETE FROM orders"
+# → BLOCKED  rule=delete_without_where   (no live MySQL required)
+```
+
+```python
+from write_gate import WriteGate
+
+gate = WriteGate(database="mysql://user:pass@localhost/db")
+gate.check("DELETE FROM orders")  # BLOCK delete_without_where
+```
+
+AST guards (DELETE/UPDATE without WHERE, DROP, PII, …) still fire without a live DB. DuckDB / Postgres / hook / MCP / approve / audit paths are unchanged. Hook still intercepts raw `mysql` / `mysqlsh` CLIs. **No Web UI. No MySQL wire-protocol proxy. No PyPI publish.**
+
 ## Policy
 
 Default (`policy.yaml` / `examples/policy.yaml`) is **production**:
