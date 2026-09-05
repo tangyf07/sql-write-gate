@@ -67,6 +67,8 @@ sql-write-gate audit             # TIME / SOURCE / OP / TABLE / VERDICT
 | PG data-modifying CTE / `SELECT INTO` | REJECT (`unsupported_sql`) |
 | Blast-radius estimate failure | BLOCK (`blast_radius_unknown`) |
 | Unsupported / ambiguous SQL | REJECT/BLOCK — never silent ALLOW |
+| Freshness range / SET expired `dt` | BLOCK (`expired_partition`) |
+| PII SELECT after `approve <id>` | ALLOW execute (other guards remain) |
 
 
 ## What it blocks
@@ -81,9 +83,11 @@ sql-write-gate audit             # TIME / SOURCE / OP / TABLE / VERDICT
 - [x] Blast-radius alias-aware COUNT; estimate failure fail-closed
 - [x] Unlisted / unsupported syntax → REJECT (`unsupported_sql`)
 - [x] Environment policy: per-operation allow / block / approval
-- [x] Freshness: expired partitions (`dt` before cutoff)
+- [x] Freshness: expired partitions (`dt` before cutoff), including range preds (`<`/`<=`/`>`/`>=`/`BETWEEN`) and writing expired `dt` via UPDATE SET / INSERT
 - [x] JSONL audit log (`.logs/audit.jsonl`); `sql-write-gate audit` prints TIME / SOURCE / OP / TABLE / VERDICT
-- [x] Approval queue (`.logs/approvals.jsonl`): `REQUIRE_APPROVAL` is recorded, not executed, until `approve <id>`
+- [x] Approval queue (`.logs/approvals.jsonl`): `REQUIRE_APPROVAL` recorded until `approve <id>` (PII SELECT approve executes; idempotent; flock + atomic replace; audit redacts URL passwords + records execution outcome)
+- [x] PreToolUse hook: nested `bash/sh -c` and semicolon-glued DB CLIs blocked (exit 2)
+- [x] MySQL adapter: callable `autocommit(True)` (PyMySQL)
 - [x] Deterministic rules — no LLM, no network
 
 ## 30-second path
@@ -254,7 +258,7 @@ Exit codes match `check`: 0 ALLOW, 1 APPROVAL, 2 BLOCK. One-shot `--sql` (and st
 
 ## v0.7 — Real approval queue
 
-`REQUIRE_APPROVAL` is no longer a soft skip. SQL that needs approval is recorded in `.logs/approvals.jsonl` and **not executed**. `sql-write-gate approve <id>` then writes. Rejected or never approved does not write. Human approve clears the environment `approval` rule only; PII / destructive / schema still **BLOCK**. `check` and the PreToolUse hook stay evaluate-only (no enqueue, no write). **No LLM. No API key. No Slack. No Web UI.**
+`REQUIRE_APPROVAL` is no longer a soft skip. SQL that needs approval is recorded in `.logs/approvals.jsonl` and **not executed**. `sql-write-gate approve <id>` then writes. Rejected or never approved does not write. Human approve clears the environment `approval` rule and PII **SELECT** approval for that queued statement; PII **writes** / destructive / schema still **BLOCK**. Already-approved ids are idempotent (no re-exec). `check` and the PreToolUse hook stay evaluate-only (no enqueue, no write). **No LLM. No API key. No Slack. No Web UI.**
 
 30-second DuckDB path (production policy, `insert=approval`):
 
@@ -319,6 +323,21 @@ Tagged **v0.11.0** with [CHANGELOG.md](CHANGELOG.md) and a GitHub Release. No Py
 ## v0.14 — README badges + v0.13.0 Release
 
 README badges (CI / Release / Python / License). Tagged **v0.13.0** with a GitHub Release. No PyPI. No product behavior change.
+
+
+## v0.18 — Freshness ranges · PII approve · nested hooks · MySQL autocommit
+
+Version **0.18.0**. Hardens bypasses left after 0.17:
+
+| Item | Behavior |
+|------|----------|
+| Freshness ranges | `dt < / <= / > / >=` (and SET/INSERT expired) → **BLOCK** `expired_partition` |
+| PII SELECT approve | Queued PII `SELECT` → `approve <id>` clears PII approval for that statement and executes |
+| Nested hooks | `bash -c` / `sh -c` and `cmd;psql…` glue → same BLOCK as direct DB CLI |
+| MySQL autocommit | Callable `autocommit(True)` preferred; setattr fallback |
+| Approvals / audit | `flock` + atomic replace; idempotent approve; audit redacts `user:pass@` URLs; appends execution result + `approval_id` |
+
+P0 from 0.17 (CTE/UNION PII, UPSERT writes, DM-CTE, blast-radius fail-closed) must not regress. **No clone/push/tag in this drop.**
 
 ## v0.17 — P0 security bypasses
 
@@ -488,6 +507,18 @@ sql-write-gate audit
 sql-write-gate audit --limit 50
 sql-write-gate audit --audit-path /tmp/audit.jsonl
 ```
+
+## Backlog (post-0.18)
+
+These five are addressed in **0.18.0**. The gate is still **非生产唯一边界** — not the sole production security boundary.
+
+- [x] Freshness range comparisons + SET/INSERT expired (0.18)
+- [x] `approve` clears PII SELECT for queued statement (0.18)
+- [x] Hook nested `bash/sh -c` + semicolon glue (0.18)
+- [x] MySQL callable `autocommit(True)` (0.18)
+- [x] Approvals flock / idempotent approve / audit URL redact + execution fields (0.18)
+- [ ] Distributed / multi-host approval lock (current flock is single-host best-effort)
+- [ ] MySQL wire-protocol proxy / Web UI / PyPI Trusted Publisher cutover (ops)
 
 ## 非目标
 
