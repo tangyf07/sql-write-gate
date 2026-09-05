@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from write_gate.decision import ACTION_APPROVAL, Decision
@@ -19,6 +21,38 @@ VERDICT_DISPLAY = {
     "REQUIRE_APPROVAL": "APPROVAL",
 }
 
+# scheme://user:password@host → scheme://user:***@host
+# Password may contain '@' if not percent-encoded; use last '@' before host.
+_URL_PASSWORD = re.compile(
+    r"^(?P<head>[a-zA-Z][a-zA-Z0-9+.-]*://[^:/@\s]+):"
+    r"(?P<password>.+)"
+    r"@(?P<host>[^/@?#\s]+)(?P<rest>.*)$"
+)
+
+
+def redact_database_url(value: object) -> str | None:
+    """Redact password in DB URLs for audit / approvals logs."""
+    if value is None:
+        return None
+    raw = str(value)
+    if not raw or "://" not in raw or "@" not in raw:
+        return raw
+    m = _URL_PASSWORD.match(raw)
+    if m:
+        return f"{m.group('head')}:***@{m.group('host')}{m.group('rest')}"
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return raw
+    if parts.password is None:
+        return raw
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    user = parts.username or ""
+    netloc = f"{user}:***@{host}" if user else f"***@{host}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
 
 def append_audit(
     decision: Decision,
@@ -26,8 +60,11 @@ def append_audit(
     agent: str = "cli",
     environment: str = "production",
     path: Path | None = None,
+    database: str | None = None,
+    executed: bool | None = None,
+    execution_outcome: str | None = None,
 ) -> None:
-    record = {
+    record: dict[str, Any] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "agent": agent,
         "environment": environment,
@@ -38,6 +75,14 @@ def append_audit(
         "decision": decision.action,
         "rule_id": decision.rule_id,
     }
+    if decision.approval_id:
+        record["approval_id"] = decision.approval_id
+    if database is not None:
+        record["database"] = redact_database_url(database)
+    if executed is not None:
+        record["executed"] = executed
+    if execution_outcome is not None:
+        record["execution_outcome"] = execution_outcome
     dest = Path(path) if path else default_audit_path()
     dest.parent.mkdir(parents=True, exist_ok=True)
     with dest.open("a", encoding="utf-8") as fh:
