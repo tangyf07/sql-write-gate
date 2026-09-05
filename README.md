@@ -279,6 +279,10 @@ make demo
 
 `sql-write-gate check "DELETE FROM orders"` is still **BLOCK**. Hook still exit 2. Proxy DELETE still BLOCK.
 
+## v0.12 — GitHub Release
+
+Tagged **v0.11.0** with [CHANGELOG.md](CHANGELOG.md) and a GitHub Release. No PyPI publish. No product behavior change.
+
 ## v0.11 — GitHub Actions CI
 
 Push and pull requests to `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): `pip install -e ".[dev]"` then `make test`. No product behavior change.
