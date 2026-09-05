@@ -279,6 +279,10 @@ make demo
 
 `sql-write-gate check "DELETE FROM orders"` is still **BLOCK**. Hook still exit 2. Proxy DELETE still BLOCK.
 
+## v0.11 — GitHub Actions CI
+
+Push and pull requests to `main` run [`.github/workflows/ci.yml`](.github/workflows/ci.yml): `pip install -e ".[dev]"` then `make test`. No product behavior change.
+
 ## v0.10 — MySQL adapter
 
 Version **0.10.0**. `mysql://` and `mysql+pymysql://` select the MySQL adapter (sqlglot dialect `mysql`). Default install is still DuckDB-only; add the optional extra for a live driver:
