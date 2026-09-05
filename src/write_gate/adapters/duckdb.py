@@ -7,7 +7,7 @@ from pathlib import Path
 import duckdb
 
 from write_gate.adapters.base import BACKEND_DUCKDB, count_sql as _count_sql
-from write_gate.paths import DB_PATH
+from write_gate.paths import default_db_path
 
 DIALECT = "duckdb"
 BACKEND = BACKEND_DUCKDB
@@ -31,7 +31,7 @@ def count_sql(table: str, predicate: str | None) -> str:
 
 
 def connect(db_path: Path | None = None, *, read_only: bool = False) -> duckdb.DuckDBPyConnection:
-    path = Path(db_path) if db_path else DB_PATH
+    path = Path(db_path) if db_path else default_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     return duckdb.connect(str(path), read_only=read_only)
 
