@@ -55,6 +55,7 @@ class Context:
     policy: Policy
     conn: Any | None = None
     dialect: str = BACKEND_DUCKDB
+    human_approved: bool = False
     guard_results: list[GuardResult] = field(default_factory=list)
 
 
@@ -64,6 +65,8 @@ def evaluate(
     policy: Policy | None = None,
     conn: Any | None = None,
     dialect: str = BACKEND_DUCKDB,
+    *,
+    human_approved: bool = False,
 ) -> Decision:
     parsed = parse(sql, dialect=sqlglot_dialect(dialect))
     ctx = Context(
@@ -73,6 +76,7 @@ def evaluate(
         policy=policy or production_policy(),
         conn=conn,
         dialect=dialect,
+        human_approved=human_approved,
     )
     results = [guard(ctx) for guard in GUARDS]
     ctx.guard_results = results
