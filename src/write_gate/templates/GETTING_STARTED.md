@@ -1,7 +1,7 @@
 # sql-write-gate — getting started
 
 ```bash
-pip install -e .
+pip install sql-write-gate   # or from clone: pip install -e .
 sql-write-gate init       # already done if you see this file
 sql-write-gate check "DELETE FROM orders"
 # → BLOCKED  rule=delete_without_where
