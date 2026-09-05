@@ -78,8 +78,16 @@ class MySQLConnection:
 
     def __init__(self, raw: Any) -> None:
         self._raw = raw
+        self._enable_autocommit()
+
+    def _enable_autocommit(self) -> None:
+        """Prefer callable autocommit(True) (PyMySQL); do not assign over the method."""
+        auto = getattr(self._raw, "autocommit", None)
+        if callable(auto):
+            auto(True)
+            return
         try:
-            self._raw.autocommit = True
+            setattr(self._raw, "autocommit", True)
         except Exception:
             pass
 
@@ -88,10 +96,14 @@ class MySQLConnection:
         if callable(cursor_fn):
             cur = cursor_fn()
             cur.execute(sql)
+            # Ensure allowed writes commit when driver autocommit did not apply.
+            self.commit()
             return cur
         execute = getattr(self._raw, "execute", None)
         if callable(execute):
-            return execute(sql)
+            result = execute(sql)
+            self.commit()
+            return result
         raise RuntimeError("MySQL connection does not support execute/cursor")
 
     def close(self) -> None:
